@@ -27,7 +27,6 @@
 
 #include <sstream>
 
-#define OPTIX_COMPATIBILITY 7
 #include "basics.h"
 #include "optix.h"
 #include "optix_function_table_definition.h"
@@ -74,8 +73,8 @@ int DenoiserOptix::initOptiX()
 
   m_dOptions.inputKind   = OPTIX_DENOISER_INPUT_RGB;
   m_dOptions.pixelFormat = pixelFormat;
-  optixDenoiserCreate(m_optixDevice, &m_dOptions, &m_denoiser);
-  optixDenoiserSetModel(m_denoiser, OPTIX_DENOISER_MODEL_KIND_HDR, nullptr, 0);
+  OPTIX_CHECK(optixDenoiserCreate(m_optixDevice, &m_dOptions, &m_denoiser));
+  OPTIX_CHECK(optixDenoiserSetModel(m_denoiser, OPTIX_DENOISER_MODEL_KIND_HDR, nullptr, 0));
 
 
   return 1;
@@ -107,18 +106,19 @@ void DenoiserOptix::denoiseImage(const nvvkTexture& imgIn, nvvkTexture* imgOut, 
         (CUdeviceptr)m_pixelBufferOut.cudaPtr, imgSize.width, imgSize.height, 0, 0, pixelFormat};
 
     CUstream stream = nullptr;
-    optixDenoiserComputeIntensity(m_denoiser, stream, &inputLayer, m_dIntensity, m_dScratch, m_dSizes.recommendedScratchSizeInBytes);
+    OPTIX_CHECK(optixDenoiserComputeIntensity(m_denoiser, stream, &inputLayer, m_dIntensity, m_dScratch,
+                                              m_dSizes.recommendedScratchSizeInBytes));
 
     OptixDenoiserParams params{};
     params.denoiseAlpha = (nbChannels == 4 ? 1 : 0);
     params.hdrIntensity = m_dIntensity;
     //params.hdrMinRGB = d_minRGB;
 
-    optixDenoiserInvoke(m_denoiser, stream, &params, m_dState, m_dSizes.stateSizeInBytes, &inputLayer, 1, 0, 0,
-                        &outputLayer, m_dScratch, m_dSizes.recommendedScratchSizeInBytes);
+    OPTIX_CHECK(optixDenoiserInvoke(m_denoiser, stream, &params, m_dState, m_dSizes.stateSizeInBytes, &inputLayer, 1, 0,
+                                    0, &outputLayer, m_dScratch, m_dSizes.recommendedScratchSizeInBytes));
 
 
-    cudaStreamSynchronize(nullptr);  // Making sure the denoiser is done
+    CUDA_CHECK(cudaStreamSynchronize(nullptr));  // Making sure the denoiser is done
     bufferToImage(m_pixelBufferOut.bufVk.buffer, imgOut);
   }
   catch(const std::exception& e)
@@ -184,19 +184,19 @@ void DenoiserOptix::destroy()
 
   if(m_dState != 0)
   {
-    cudaFree((void**)&m_dState);
+    CUDA_CHECK(cudaFree((void*)m_dState));
   }
   if(m_dScratch != 0)
   {
-    cudaFree((void**)&m_dScratch);
+    CUDA_CHECK(cudaFree((void*)m_dScratch));
   }
   if(m_dIntensity != 0)
   {
-    cudaFree((void**)&m_dIntensity);
+    CUDA_CHECK(cudaFree((void*)m_dIntensity));
   }
   if(m_dMinRGB != 0)
   {
-    cudaFree((void**)&m_dMinRGB);
+    CUDA_CHECK(cudaFree((void*)m_dMinRGB));
   }
 }
 
@@ -214,15 +214,13 @@ void DenoiserOptix::createBufferCuda(BufferCuda& buf)
   cudaExtMemHandleDesc.size                = req.size;
 
   cudaExternalMemory_t cudaExtMemVertexBuffer{};
-  cudaError_t          result;
-  result = cudaImportExternalMemory(&cudaExtMemVertexBuffer, &cudaExtMemHandleDesc);
+  CUDA_CHECK(cudaImportExternalMemory(&cudaExtMemVertexBuffer, &cudaExtMemHandleDesc));
 
   cudaExternalMemoryBufferDesc cudaExtBufferDesc{};
   cudaExtBufferDesc.offset = 0;
   cudaExtBufferDesc.size   = req.size;
   cudaExtBufferDesc.flags  = 0;
-
-  cudaExternalMemoryGetMappedBuffer(&buf.cudaPtr, cudaExtMemVertexBuffer, &cudaExtBufferDesc);
+  CUDA_CHECK(cudaExternalMemoryGetMappedBuffer(&buf.cudaPtr, cudaExtMemVertexBuffer, &cudaExtBufferDesc));
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -245,14 +243,14 @@ void DenoiserOptix::allocateBuffers()
   createBufferCuda(m_pixelBufferOut);
 
   // Computing the amount of memory needed to do the denoiser
-  optixDenoiserComputeMemoryResources(m_denoiser, m_imageSize.width, m_imageSize.height, &m_dSizes);
+  OPTIX_CHECK(optixDenoiserComputeMemoryResources(m_denoiser, m_imageSize.width, m_imageSize.height, &m_dSizes));
 
-  cudaMalloc((void**)&m_dState, m_dSizes.stateSizeInBytes);
-  cudaMalloc((void**)&m_dScratch, m_dSizes.recommendedScratchSizeInBytes);
-  cudaMalloc((void**)&m_dIntensity, sizeof(float));
-  cudaMalloc((void**)&m_dMinRGB, 4 * sizeof(float));
+  CUDA_CHECK(cudaMalloc((void**)&m_dState, m_dSizes.stateSizeInBytes));
+  CUDA_CHECK(cudaMalloc((void**)&m_dScratch, m_dSizes.recommendedScratchSizeInBytes));
+  CUDA_CHECK(cudaMalloc((void**)&m_dIntensity, sizeof(float)));
+  CUDA_CHECK(cudaMalloc((void**)&m_dMinRGB, 4 * sizeof(float)));
 
   CUstream stream = nullptr;
-  optixDenoiserSetup(m_denoiser, stream, m_imageSize.width, m_imageSize.height, m_dState, m_dSizes.stateSizeInBytes,
-                     m_dScratch, m_dSizes.recommendedScratchSizeInBytes);
+  OPTIX_CHECK(optixDenoiserSetup(m_denoiser, stream, m_imageSize.width, m_imageSize.height, m_dState,
+                                 m_dSizes.stateSizeInBytes, m_dScratch, m_dSizes.recommendedScratchSizeInBytes));
 }
