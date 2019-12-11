@@ -46,6 +46,7 @@
 #include <nvvkpp/utilities_vkpp.hpp>
 
 #include "basics.h"
+#include "imgui_impl_glfw.h"
 #include "nvh/fileoperations.hpp"
 #include "tonemapper.hpp"
 
@@ -238,6 +239,7 @@ void DenoiseExample::display()
 
   bool modified = false;
   {
+    ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     ImGui::SetNextWindowBgAlpha(0.8);
     ImGui::SetNextWindowSize(ImVec2(150, 200), ImGuiCond_FirstUseEver);
@@ -509,12 +511,15 @@ void DenoiseExample::updateUniformBuffer(const vk::CommandBuffer& cmdBuffer)
 //--------------------------------------------------------------------------------------------------
 // Overload keyboard hit
 //
-void DenoiseExample::onKeyboard(NVPWindow::KeyCode key, ButtonAction action, int mods, int x, int y)
+void DenoiseExample::onKeyboard(int key, int scancode, int action, int mods)
 {
-  nvvkpp::AppBase::onKeyboard(key, action, mods, x, y);
+  nvvkpp::AppBase::onKeyboard(key, scancode, action, mods);
 
-  if(key == NVPWindow::KEY_SPACE && action == 1)
+  if(key == GLFW_KEY_SPACE && action == 1)
   {
+    double x, y;
+    glfwGetCursorPos(m_window, &x, &y);
+
     // Set the camera as to see the model
     float px = x / float(m_size.width);
     float py = y / float(m_size.height);

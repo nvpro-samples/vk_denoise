@@ -49,6 +49,14 @@ OptixDeviceContext m_optixDevice;
 // has the 'export' functionality.
 
 
+void DenoiserOptix::setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex)
+{
+  m_queueIndex     = queueIndex;
+  m_device         = device;
+  m_physicalDevice = physicalDevice;
+  m_alloc.init(device, physicalDevice);
+}
+
 //--------------------------------------------------------------------------------------------------
 // Initializing OptiX and creating the Denoiser instance
 //
@@ -221,6 +229,30 @@ void DenoiserOptix::createBufferCuda(BufferCuda& buf)
   cudaExtBufferDesc.size   = req.size;
   cudaExtBufferDesc.flags  = 0;
   CUDA_CHECK(cudaExternalMemoryGetMappedBuffer(&buf.cudaPtr, cudaExtMemVertexBuffer, &cudaExtBufferDesc));
+}
+
+void DenoiserOptix::importMemory()
+{
+  cudaExternalMemory_t         extMem_out;
+  cudaExternalMemoryHandleDesc memHandleDesc{};
+  cudaImportExternalMemory(&extMem_out, &memHandleDesc);
+}
+
+//--------------------------------------------------------------------------------------------------
+// UI specific for the denoiser
+//
+void DenoiserOptix::uiSetup(int& frameNumber, const int maxFrames)
+{
+  if(ImGui::CollapsingHeader("Denoiser"))
+  {
+    ImGui::RadioButton("Original", &denoisedMode, 0);
+    if(ImGui::RadioButton("Denoised", &denoisedMode, 1) && frameNumber >= maxFrames)
+    {
+      frameNumber = maxFrames - 1;
+    }
+    ImGui::InputInt("Start Frame Denoiser", &startDenoiserFrame);
+    startDenoiserFrame = std::max(0, std::min(maxFrames - 1, startDenoiserFrame));
+  }
 }
 
 //--------------------------------------------------------------------------------------------------

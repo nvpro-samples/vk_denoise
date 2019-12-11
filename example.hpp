@@ -81,8 +81,7 @@ public:
   void createPipeline();
   void destroy() override;
   void updateUniformBuffer(const vk::CommandBuffer& cmdBuffer);
-  void onKeyboard(NVPWindow::KeyCode key, ButtonAction action, int mods, int x, int y) override;
-
+  void onKeyboard(int key, int scancode, int action, int mods) override;
 
   void           onResize(int w, int h) override;
   DenoiserOptix& denoiser() { return m_denoiser; }

@@ -30,17 +30,11 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-#define OPTIX_COMPATIBILITY 7
-//#include "basics.h"
-//#include "optix.h"
-
-#include "optix_types.h"
-
-
+#include "imgui.h"
 #include "nvvkpp/allocator_dedicated_vkpp.hpp"
 #include "nvvkpp/allocator_dma_vkpp.hpp"
-#include <imgui/imgui_helper.h>
-#include <nvvkpp/images_vkpp.hpp>
+#include "nvvkpp/images_vkpp.hpp"
+#include "optix_types.h"
 
 
 struct DenoiserOptix
@@ -64,49 +58,19 @@ struct DenoiserOptix
     }
   };
 
-
   DenoiserOptix() = default;
 
-  void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex)
-  {
-    m_queueIndex = queueIndex;
-
-    m_device         = device;
-    m_physicalDevice = physicalDevice;
-
-    m_alloc.init(device, physicalDevice);
-  }
-
-  int denoisedMode{1};
-  int startDenoiserFrame{5};
-
-  int initOptiX();
-
+  void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex);
+  int  initOptiX();
   void denoiseImage(const nvvkTexture& imgIn, nvvkTexture* imgOut, const vk::Extent2D& imgSize);
-
-
   void destroy();
   void createBufferCuda(BufferCuda& buf);
-  void importMemory()
-  {
-    cudaExternalMemory_t         extMem_out;
-    cudaExternalMemoryHandleDesc memHandleDesc{};
-    cudaImportExternalMemory(&extMem_out, &memHandleDesc);
-  }
+  void importMemory();
+  void uiSetup(int& frameNumber, const int maxFrames);
 
-  void uiSetup(int& frameNumber, const int maxFrames)
-  {
-    if(ImGui::CollapsingHeader("Denoiser"))
-    {
-      ImGui::RadioButton("Original", &denoisedMode, 0);
-      if(ImGui::RadioButton("Denoised", &denoisedMode, 1) && frameNumber >= maxFrames)
-      {
-        frameNumber = maxFrames - 1;
-      }
-      ImGui::InputInt("Start Frame Denoiser", &startDenoiserFrame);
-      startDenoiserFrame = std::max(0, std::min(maxFrames - 1, startDenoiserFrame));
-    }
-  }
+  // Ui
+  int denoisedMode{1};
+  int startDenoiserFrame{5};
 
 private:
   void allocateBuffers();
@@ -124,14 +88,11 @@ private:
 
   vk::Device         m_device;
   vk::PhysicalDevice m_physicalDevice;
+  uint32_t           m_queueIndex;
 
   nvvkpp::AllocatorVkExport m_alloc;
 
   vk::Extent2D m_imageSize;
-
-
-  BufferCuda m_pixelBufferIn;
-  BufferCuda m_pixelBufferOut;
-
-  uint32_t m_queueIndex;
+  BufferCuda   m_pixelBufferIn;
+  BufferCuda   m_pixelBufferOut;
 };
