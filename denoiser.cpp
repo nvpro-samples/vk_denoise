@@ -105,13 +105,15 @@ void DenoiserOptix::denoiseImage(const nvvkTexture& imgIn, nvvkTexture* imgOut, 
   {
     imageToBuffer(imgIn, m_pixelBufferIn.bufVk.buffer);
 
-    OptixPixelFormat pixelFormat = OPTIX_PIXEL_FORMAT_FLOAT4;
-    auto             sizeofPixel = static_cast<uint32_t>(sizeof(float4));
+    OptixPixelFormat pixelFormat      = OPTIX_PIXEL_FORMAT_FLOAT4;
+    auto             sizeofPixel      = static_cast<uint32_t>(sizeof(float4));
+    uint32_t         rowStrideInBytes = nbChannels * sizeof(float) * imgSize.width;
 
-
-    OptixImage2D inputLayer{(CUdeviceptr)m_pixelBufferIn.cudaPtr, imgSize.width, imgSize.height, 0, 0, pixelFormat};
+    OptixImage2D inputLayer{
+        (CUdeviceptr)m_pixelBufferIn.cudaPtr, imgSize.width, imgSize.height, rowStrideInBytes, 0, pixelFormat};
     OptixImage2D outputLayer = {
-        (CUdeviceptr)m_pixelBufferOut.cudaPtr, imgSize.width, imgSize.height, 0, 0, pixelFormat};
+        (CUdeviceptr)m_pixelBufferOut.cudaPtr, imgSize.width, imgSize.height, rowStrideInBytes, 0, pixelFormat};
+
 
     CUstream stream = nullptr;
     OPTIX_CHECK(optixDenoiserComputeIntensity(m_denoiser, stream, &inputLayer, m_dIntensity, m_dScratch,
