@@ -95,7 +95,12 @@ int main(int argc, char** argv)
   nvvkpp::ContextCreateInfo deviceInfo;
   deviceInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
   deviceInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
+#ifdef WIN32
   deviceInfo.addInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#else
+  deviceInfo.addInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+  deviceInfo.addInstanceExtension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+#endif
   deviceInfo.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
   deviceInfo.addInstanceExtension(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
   deviceInfo.addInstanceExtension(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
