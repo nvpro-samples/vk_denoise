@@ -215,16 +215,30 @@ void DenoiserOptix::destroy()
 //
 void DenoiserOptix::createBufferCuda(BufferCuda& buf)
 {
+#ifdef WIN32
   buf.handle = m_device.getMemoryWin32HandleKHR({buf.bufVk.allocation, vk::ExternalMemoryHandleTypeFlagBits::eOpaqueWin32});
+#else
+  buf.handle = m_device.getMemoryFdKHR({buf.bufVk.allocation, vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd});
+#endif
   auto req = m_device.getBufferMemoryRequirements(buf.bufVk.buffer);
 
   cudaExternalMemoryHandleDesc cudaExtMemHandleDesc{};
+  cudaExtMemHandleDesc.size                = req.size;
+#ifdef WIN32
   cudaExtMemHandleDesc.type                = cudaExternalMemoryHandleTypeOpaqueWin32;
   cudaExtMemHandleDesc.handle.win32.handle = buf.handle;
-  cudaExtMemHandleDesc.size                = req.size;
+#else
+  cudaExtMemHandleDesc.type                = cudaExternalMemoryHandleTypeOpaqueFd;
+  cudaExtMemHandleDesc.handle.fd           = buf.handle;
+#endif
 
   cudaExternalMemory_t cudaExtMemVertexBuffer{};
   CUDA_CHECK(cudaImportExternalMemory(&cudaExtMemVertexBuffer, &cudaExtMemHandleDesc));
+
+#ifndef WIN32
+  // fd got consumed
+  cudaExtMemHandleDesc.handle.fd = -1;
+#endif
 
   cudaExternalMemoryBufferDesc cudaExtBufferDesc{};
   cudaExtBufferDesc.offset = 0;

@@ -27,6 +27,10 @@
 
 #pragma once
 
+#ifdef LINUX
+#include <unistd.h>
+#endif
+
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -48,13 +52,25 @@ struct DenoiserOptix
     nvvkBuffer bufVk;  // The Vulkan allocated buffer
 
     // Extra for Cuda
-    HANDLE handle  = nullptr;  // The Win32 handle
+#ifdef WIN32
+    HANDLE handle = nullptr;  // The Win32 handle
+#else
+    int handle = -1;
+#endif
     void*  cudaPtr = nullptr;
 
     void destroy(nvvkpp::AllocatorVkExport& alloc)
     {
       alloc.destroy(bufVk);
+#ifdef WIN32
       CloseHandle(handle);
+#else
+      if(handle != -1)
+      {
+        close(handle);
+        handle = -1;
+      }
+#endif
     }
   };
 
