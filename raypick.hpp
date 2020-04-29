@@ -72,7 +72,7 @@ public:
   vk::PhysicalDevice                       m_physicalDevice;
   vk::Device                               m_device;
   uint32_t                                 m_queueIndex;
-  nvvk::Allocator*                           m_alloc;
+  nvvk::Allocator*                         m_alloc{nullptr};
 
   RayPicker() = default;
 

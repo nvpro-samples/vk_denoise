@@ -70,7 +70,7 @@ public:
   vk::Device                                         m_device;
   nvvk::DebugUtil                                    m_debug;
   uint32_t                                           m_queueIndex;
-  nvvk::Allocator*                                   m_alloc;
+  nvvk::Allocator*                                   m_alloc{nullptr};
   nvvk::Texture                                      m_raytracingOutput;
   vk::Extent2D                                       m_outputSize;
   nvvk::DescriptorSetBindings                        m_binding;
