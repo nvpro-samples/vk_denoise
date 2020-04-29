@@ -30,10 +30,6 @@
 #include <cuda_runtime.h>
 #include <sstream>
 
-
-#include <vulkan/vulkan.hpp>
-
-
 // Define these only in *one* .cc file.
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
@@ -41,21 +37,14 @@
 
 #include "example.hpp"
 
-#include <nvvkpp/descriptorsets_vkpp.hpp>
-#include <nvvkpp/pipeline_vkpp.hpp>
-#include <nvvkpp/utilities_vkpp.hpp>
+#include <nvvk/descriptorsets_vk.hpp>
+#include <nvvk/pipeline_vk.hpp>
+
 
 #include "basics.h"
 #include "imgui_impl_glfw.h"
 #include "nvh/fileoperations.hpp"
 #include "tonemapper.hpp"
-
-using vkDT = vk::DescriptorType;
-using vkSS = vk::ShaderStageFlagBits;
-using vkCB = vk::CommandBufferUsageFlagBits;
-using vkBU = vk::BufferUsageFlagBits;
-using vkMP = vk::MemoryPropertyFlagBits;
-using vkIU = vk::ImageUsageFlagBits;
 
 extern std::vector<std::string> defaultSearchPaths;
 
@@ -111,8 +100,8 @@ void DenoiseExample::initialize(const std::string& filename)
   // Raytracing
   {
     std::vector<uint32_t>                            blassOffset;
-    std::vector<std::vector<vk::GeometryNV>>         blass;
-    std::vector<nvvkpp::RaytracingBuilder::Instance> rayInst;
+    std::vector<std::vector<VkGeometryNV>>           blass;
+    std::vector<nvvk::RaytracingBuilderNV::Instance> rayInst;
     m_primitiveOffsets.reserve(m_gltfScene.m_linearNodes.size());
 
     // BLAS - Storing each primitive in a geometry
@@ -135,7 +124,7 @@ void DenoiseExample::initialize(const std::string& filename)
     {
       if(node->m_mesh != ~0u)
       {
-        nvvkpp::RaytracingBuilder::Instance inst;
+        nvvk::RaytracingBuilderNV::Instance inst;
         inst.transform = node->worldMatrix();
 
         // Same transform for each primitive of the mesh
@@ -153,10 +142,10 @@ void DenoiseExample::initialize(const std::string& filename)
 
     // Uploading the geometry information
     {
-      nvvkpp::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
+      nvvk::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
       m_primitiveInfoBuffer = m_alloc.createBuffer(cmdBuf, m_primitiveOffsets, vk::BufferUsageFlagBits::eStorageBuffer);
     }
-    m_alloc.flushStaging();
+    m_alloc.finalizeAndReleaseStaging();
 
 
     vk::DescriptorBufferInfo sceneDesc{m_sceneBuffer.buffer, 0, VK_WHOLE_SIZE};
@@ -195,13 +184,13 @@ void DenoiseExample::createDenoiseOutImage()
   if(m_imageOut.image)
     m_alloc.destroy(m_imageOut);
 
-  nvvkpp::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
+  nvvk::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
 
-  auto info  = nvvkpp::image::create2DInfo(m_size, vk::Format::eR32G32B32A32Sfloat);
-  m_imageOut = m_alloc.createImage(info);
-  m_imageOut.descriptor =
-      nvvkpp::image::create2DDescriptor(m_device, m_imageOut.image, vk::SamplerCreateInfo(), vk::Format::eR32G32B32A32Sfloat);
-  nvvkpp::image::setImageLayout(cmdBuf, m_imageOut.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal);
+  vk::ImageCreateInfo     info   = nvvk::makeImage2DCreateInfo(m_size, vk::Format::eR32G32B32A32Sfloat);
+  nvvk::Image               image  = m_alloc.createImage(info);
+  vk::ImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, info);
+  m_imageOut                     = m_alloc.createTexture(image, ivInfo, vk::SamplerCreateInfo());
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_imageOut.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -266,11 +255,11 @@ void DenoiseExample::display()
   // render the scene
   prepareFrame();
   vk::ClearValue clearValues[2];
-  clearValues[0] = nvvkpp::util::clearColor({0.1f, 0.1f, 0.4f, 0.f});
+  clearValues[0].color = std::array<float, 4>({0.1f, 0.1f, 0.4f, 0.f});
   clearValues[1].setDepthStencil({1.0f, 0});
 
   // Preparing the rendering
-  vk::CommandBuffer& cmdBuf = m_commandBuffers[m_curFramebuffer];
+  vk::CommandBuffer& cmdBuf = m_commandBuffers[getCurFrame()];
   cmdBuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 
   updateUniformBuffer(cmdBuf);
@@ -298,7 +287,7 @@ void DenoiseExample::display()
   m_tonemapper.run(cmdBuf);
 
   // Drawing a quad (pass through + final.frag)
-  vk::RenderPassBeginInfo renderPassBeginInfo = {m_renderPass, m_framebuffers[m_curFramebuffer], {{}, m_size}, 2, clearValues};
+  vk::RenderPassBeginInfo renderPassBeginInfo = {m_renderPass, m_framebuffers[getCurFrame()], {{}, m_size}, 2, clearValues};
   cmdBuf.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
   //
@@ -376,7 +365,7 @@ bool DenoiseExample::needToResetFrame()
 //
 void DenoiseExample::prepareUniformBuffers()
 {
-  nvvkpp::SingleCommandBuffer sc(m_device, m_graphicsQueueIndex);
+  nvvk::CommandPool sc(m_device, m_graphicsQueueIndex);
 
   vk::CommandBuffer cmdBuf = sc.createCommandBuffer();
 
@@ -419,8 +408,8 @@ void DenoiseExample::prepareUniformBuffers()
   }
   m_materialBuffer = m_alloc.createBuffer(cmdBuf, allMaterials, vkBU::eStorageBuffer);
 
-  sc.flushCommandBuffer(cmdBuf);
-  m_alloc.flushStaging();
+  sc.submitAndWait(cmdBuf);
+  m_alloc.finalizeAndReleaseStaging();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -428,10 +417,10 @@ void DenoiseExample::prepareUniformBuffers()
 //
 void DenoiseExample::createDescriptor()
 {
-  m_bindings.emplace_back(0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment);
-  m_descriptorPool      = nvvkpp::util::createDescriptorPool(m_device, m_bindings);
-  m_descriptorSetLayout = nvvkpp::util::createDescriptorSetLayout(m_device, m_bindings);
-  m_descriptorSet       = nvvkpp::util::createDescriptorSet(m_device, m_descriptorPool, m_descriptorSetLayout);
+  m_bindings.addBinding(0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment);
+  m_descriptorPool      = m_bindings.createPool(m_device);
+  m_descriptorSetLayout = m_bindings.createLayout(m_device);
+  m_descriptorSet       = nvvk::allocateDescriptorSet(m_device, m_descriptorPool, m_descriptorSetLayout);
 
   vk::PushConstantRange push_constants = {vk::ShaderStageFlagBits::eFragment, 0, 1 * sizeof(float)};
 
@@ -443,7 +432,7 @@ void DenoiseExample::createDescriptor()
 //
 void DenoiseExample::updateDescriptor(const vk::DescriptorImageInfo& descriptor)
 {
-  vk::WriteDescriptorSet writeDescriptorSets = nvvkpp::util::createWrite(m_descriptorSet, m_bindings[0], &descriptor);
+  vk::WriteDescriptorSet writeDescriptorSets = m_bindings.makeWrite(m_descriptorSet, 0, &descriptor);
   m_device.updateDescriptorSets(writeDescriptorSets, nullptr);
 }
 
@@ -452,11 +441,11 @@ void DenoiseExample::createPipeline()
   std::vector<std::string> paths = defaultSearchPaths;
 
   // Pipeline: completely generic, no vertices
-  nvvkpp::GraphicsPipelineGenerator pipelineGenerator(m_device, m_pipelineLayout, m_renderPass);
+  nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(m_device, m_pipelineLayout, m_renderPass);
   pipelineGenerator.addShader(nvh::loadFile("shaders/passthrough.vert.spv", true, paths), vk::ShaderStageFlagBits::eVertex);
   pipelineGenerator.addShader(nvh::loadFile("shaders/final.frag.spv", true, paths), vk::ShaderStageFlagBits::eFragment);
   pipelineGenerator.rasterizationState.setCullMode(vk::CullModeFlagBits::eNone);
-  m_pipeline = pipelineGenerator.create();
+  m_pipeline = pipelineGenerator.createPipeline();
 }
 
 void DenoiseExample::destroy()
@@ -484,7 +473,7 @@ void DenoiseExample::destroy()
   m_alloc.destroy(m_materialBuffer);
   m_alloc.destroy(m_primitiveInfoBuffer);
 
-
+  m_alloc.deinit();
   m_memAlloc.deinit();
 
   AppBase::destroy();
@@ -513,7 +502,7 @@ void DenoiseExample::updateUniformBuffer(const vk::CommandBuffer& cmdBuffer)
 //
 void DenoiseExample::onKeyboard(int key, int scancode, int action, int mods)
 {
-  nvvkpp::AppBase::onKeyboard(key, scancode, action, mods);
+  nvvk::AppBase::onKeyboard(key, scancode, action, mods);
 
   if(key == GLFW_KEY_SPACE && action == 1)
   {
@@ -524,11 +513,11 @@ void DenoiseExample::onKeyboard(int key, int scancode, int action, int mods)
     float px = x / float(m_size.width);
     float py = y / float(m_size.height);
     {
-      nvvkpp::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
+      nvvk::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
       m_rayPicker.run(cmdBuf, px, py);
     }
 
-    nvvkpp::RayPicker::PickResult pr = m_rayPicker.getResult();
+    RayPicker::PickResult pr = m_rayPicker.getResult();
 
     if(pr.intanceID == ~0)
     {

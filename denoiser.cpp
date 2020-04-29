@@ -27,6 +27,8 @@
 
 #include <sstream>
 
+#include <vulkan/vulkan.hpp>
+
 #include "basics.h"
 #include "optix.h"
 #include "optix_function_table_definition.h"
@@ -34,9 +36,9 @@
 
 #include "denoiser.hpp"
 
-#include "nvvkpp/commands_vkpp.hpp"
-#include <fileformats/stb_image_write.h>
-#include <nvvkpp/utilities_vkpp.hpp>
+#include "fileformats/stb_image_write.h"
+#include "nvvk/commands_vk.hpp"
+
 
 OptixDeviceContext m_optixDevice;
 
@@ -91,7 +93,7 @@ int DenoiserOptix::initOptiX()
 //--------------------------------------------------------------------------------------------------
 // Denoising the image in input and saving the denoised image in the output
 //
-void DenoiserOptix::denoiseImage(const nvvkTexture& imgIn, nvvkTexture* imgOut, const vk::Extent2D& imgSize)
+void DenoiserOptix::denoiseImage(const nvvk::Texture& imgIn, nvvk::Texture* imgOut, const vk::Extent2D& imgSize)
 {
   int nbChannels{4};
 
@@ -140,15 +142,15 @@ void DenoiserOptix::denoiseImage(const nvvkTexture& imgIn, nvvkTexture* imgOut, 
 //--------------------------------------------------------------------------------------------------
 // Converting the output buffer to the image
 //
-void DenoiserOptix::bufferToImage(const vk::Buffer& pixelBufferOut, nvvkTexture* imgOut)
+void DenoiserOptix::bufferToImage(const vk::Buffer& pixelBufferOut, nvvk::Texture* imgOut)
 {
-  nvvkpp::SingleCommandBuffer sc(m_device, m_queueIndex);
-  vk::CommandBuffer           cmdBuff = sc.createCommandBuffer();
+  nvvk::CommandPool sc(m_device, m_queueIndex);
+  vk::CommandBuffer cmdBuff = sc.createCommandBuffer();
 
   // Transit the depth buffer image in eTransferSrcOptimal
   vk::ImageSubresourceRange subresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-  nvvkpp::image::setImageLayout(cmdBuff, imgOut->image, vk::ImageLayout::eShaderReadOnlyOptimal,
-                                vk::ImageLayout::eTransferDstOptimal, subresourceRange);
+  nvvk::cmdBarrierImageLayout(cmdBuff, imgOut->image, vk::ImageLayout::eShaderReadOnlyOptimal,
+                              vk::ImageLayout::eTransferDstOptimal, subresourceRange);
 
   // Copy the pixel under the cursor
   vk::BufferImageCopy copyRegion;
@@ -158,23 +160,23 @@ void DenoiserOptix::bufferToImage(const vk::Buffer& pixelBufferOut, nvvkTexture*
   cmdBuff.copyBufferToImage(pixelBufferOut, imgOut->image, vk::ImageLayout::eTransferDstOptimal, {copyRegion});
 
   // Put back the depth buffer as  it was
-  nvvkpp::image::setImageLayout(cmdBuff, imgOut->image, vk::ImageLayout::eTransferDstOptimal,
-                                vk::ImageLayout::eShaderReadOnlyOptimal, subresourceRange);
-  sc.flushCommandBuffer(cmdBuff);
+  nvvk::cmdBarrierImageLayout(cmdBuff, imgOut->image, vk::ImageLayout::eTransferDstOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal, subresourceRange);
+  sc.submitAndWait(cmdBuff);
 }
 
 //--------------------------------------------------------------------------------------------------
 // Converting the image to a buffer used by the denoiser
 //
-void DenoiserOptix::imageToBuffer(const nvvkTexture& imgIn, const vk::Buffer& pixelBufferOut)
+void DenoiserOptix::imageToBuffer(const nvvk::Texture& imgIn, const vk::Buffer& pixelBufferOut)
 {
 
-  nvvkpp::SingleCommandBuffer sc(m_device, m_queueIndex);
-  vk::CommandBuffer           cmdBuff = sc.createCommandBuffer();
+  nvvk::CommandPool sc(m_device, m_queueIndex);
+  vk::CommandBuffer cmdBuff = sc.createCommandBuffer();
 
   // Make the image layout eTransferSrcOptimal to copy to buffer
   vk::ImageSubresourceRange subresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-  nvvkpp::image::setImageLayout(cmdBuff, imgIn.image, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
+  nvvk::cmdBarrierImageLayout(cmdBuff, imgIn.image, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferSrcOptimal, subresourceRange);
 
   // Copy the image to the buffer
   vk::BufferImageCopy copyRegion;
@@ -183,8 +185,8 @@ void DenoiserOptix::imageToBuffer(const nvvkTexture& imgIn, const vk::Buffer& pi
   cmdBuff.copyImageToBuffer(imgIn.image, vk::ImageLayout::eTransferSrcOptimal, pixelBufferOut, {copyRegion});
 
   // Put back the image as it was
-  nvvkpp::image::setImageLayout(cmdBuff, imgIn.image, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
-  sc.flushCommandBuffer(cmdBuff);
+  nvvk::cmdBarrierImageLayout(cmdBuff, imgIn.image, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
+  sc.submitAndWait(cmdBuff);
 }
 
 void DenoiserOptix::destroy()
@@ -223,13 +225,13 @@ void DenoiserOptix::createBufferCuda(BufferCuda& buf)
   auto req = m_device.getBufferMemoryRequirements(buf.bufVk.buffer);
 
   cudaExternalMemoryHandleDesc cudaExtMemHandleDesc{};
-  cudaExtMemHandleDesc.size                = req.size;
+  cudaExtMemHandleDesc.size = req.size;
 #ifdef WIN32
   cudaExtMemHandleDesc.type                = cudaExternalMemoryHandleTypeOpaqueWin32;
   cudaExtMemHandleDesc.handle.win32.handle = buf.handle;
 #else
-  cudaExtMemHandleDesc.type                = cudaExternalMemoryHandleTypeOpaqueFd;
-  cudaExtMemHandleDesc.handle.fd           = buf.handle;
+  cudaExtMemHandleDesc.type      = cudaExternalMemoryHandleTypeOpaqueFd;
+  cudaExtMemHandleDesc.handle.fd = buf.handle;
 #endif
 
   cudaExternalMemory_t cudaExtMemVertexBuffer{};
@@ -283,8 +285,9 @@ void DenoiserOptix::allocateBuffers()
 
   // Using direct method
   vk::BufferUsageFlags usage{vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst};
-  m_pixelBufferIn.bufVk  = m_alloc.createBuffer({{}, bufferSize, usage});
-  m_pixelBufferOut.bufVk = m_alloc.createBuffer({{}, bufferSize, usage | vk::BufferUsageFlagBits::eTransferSrc});
+  m_pixelBufferIn.bufVk  = m_alloc.createBuffer(bufferSize, usage, vk::MemoryPropertyFlagBits::eDeviceLocal);
+  m_pixelBufferOut.bufVk = m_alloc.createBuffer(bufferSize, usage | vk::BufferUsageFlagBits::eTransferSrc,
+                                                vk::MemoryPropertyFlagBits::eDeviceLocal);
 
   // Exporting the buffer to Cuda handle and pointers
   createBufferCuda(m_pixelBufferIn);

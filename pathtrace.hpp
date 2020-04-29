@@ -32,29 +32,19 @@
 // Raytracing implementation for the Vulkan Interop (G-Buffers)
 //////////////////////////////////////////////////////////////////////////
 
-#define ALLOC_DMA
+#include "vkalloc.hpp"
+
 #include "nvh/fileoperations.hpp"
-#include "nvvkpp/commands_vkpp.hpp"
-#include "nvvkpp/descriptorsets_vkpp.hpp"
-#include "nvvkpp/raytrace_vkpp.hpp"
-#include "nvvkpp/utilities_vkpp.hpp"
+#include "nvvk/commands_vk.hpp"
+#include "nvvk/descriptorsets_vk.hpp"
+#include "nvvk/raytraceNV_vk.hpp"
+#include "nvvk/shaders_vk.hpp"
+
 
 extern std::vector<std::string> defaultSearchPaths;
 
-namespace nvvkpp {
-
 struct PathTracer
 {
-  using nvvkAlloc    = nvvkpp::AllocatorDma;
-  using nvvkBuffer   = nvvkpp::BufferDma;
-  using nvvkMemAlloc = nvvk::DeviceMemoryAllocator;
-  using nvvkTexture  = nvvkpp::TextureDma;
-  using vkCB         = vk::CommandBufferUsageFlagBits;
-  using vkDSLB       = vk::DescriptorSetLayoutBinding;
-  using vkDT         = vk::DescriptorType;
-  using vkSS         = vk::ShaderStageFlagBits;
-
-
 private:
   std::vector<vk::RayTracingShaderGroupCreateInfoNV> m_groups;
 
@@ -78,16 +68,16 @@ public:
 
   //
   vk::Device                                         m_device;
-  nvvkpp::DebugUtil                                  m_debug;
+  nvvk::DebugUtil                                    m_debug;
   uint32_t                                           m_queueIndex;
-  nvvkAlloc                                          m_alloc;
-  nvvkTexture                                        m_raytracingOutput;
+  nvvk::Allocator*                                   m_alloc;
+  nvvk::Texture                                      m_raytracingOutput;
   vk::Extent2D                                       m_outputSize;
-  std::vector<vk::DescriptorSetLayoutBinding>        m_binding;
-  nvvkBuffer                                         m_rtSBTBuffer;
+  nvvk::DescriptorSetBindings                        m_binding;
+  nvvk::Buffer                                       m_rtSBTBuffer;
   vk::PhysicalDeviceRayTracingPropertiesNV           m_rtProperties;
-  nvvkpp::RaytracingBuilder                          m_rtBuilder;
-  std::vector<vk::DescriptorSetLayoutBinding>        m_rtDescSetLayoutBind;
+  nvvk::RaytracingBuilderNV                          m_rtBuilder;
+  nvvk::DescriptorSetBindings                        m_rtDescSetLayoutBind;
   vk::DescriptorPool                                 m_rtDescPool;
   vk::DescriptorSetLayout                            m_rtDescSetLayout;
   vk::DescriptorSet                                  m_rtDescSet;
@@ -99,24 +89,24 @@ public:
   PathTracer() = default;
 
   // Accessors
-  const Semaphore&   semaphores() const { return m_semaphores; }
-  const nvvkTexture& outputImage() const { return m_raytracingOutput; }
+  const Semaphore&     semaphores() const { return m_semaphores; }
+  const nvvk::Texture& outputImage() const { return m_raytracingOutput; }
 
   //--------------------------------------------------------------------------------------------------
   // Initializing the allocator and querying the raytracing properties
   //
-  void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex, nvvkMemAlloc& memoryAllocator)
+  void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex, nvvk::Allocator* allocator)
   {
     m_device     = device;
     m_queueIndex = queueIndex;
     m_debug.setup(device);
-    m_alloc.init(device, &memoryAllocator);
+    m_alloc = allocator;
 
     // Requesting raytracing properties
     auto properties = physicalDevice.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPropertiesNV>();
     m_rtProperties = properties.get<vk::PhysicalDeviceRayTracingPropertiesNV>();
 
-    m_rtBuilder.setup(device, memoryAllocator, queueIndex);
+    m_rtBuilder.setup(device, allocator, queueIndex);
   }
 
   //--------------------------------------------------------------------------------------------------
@@ -126,13 +116,13 @@ public:
   {
     m_device.destroy(m_semaphores.vkComplete);
     m_device.destroy(m_semaphores.vkReady);
-    m_alloc.destroy(m_raytracingOutput);
+    m_alloc->destroy(m_raytracingOutput);
     m_rtBuilder.destroy();
     m_device.destroy(m_rtDescPool);
     m_device.destroy(m_rtDescSetLayout);
     m_device.destroy(m_rtPipeline);
     m_device.destroy(m_rtPipelineLayout);
-    m_alloc.destroy(m_rtSBTBuffer);
+    m_alloc->destroy(m_rtSBTBuffer);
   }
 
   //--------------------------------------------------------------------------------------------------
@@ -141,7 +131,7 @@ public:
   //
   void createOutputImage(vk::Extent2D size)
   {
-    m_alloc.destroy(m_raytracingOutput);
+    m_alloc->destroy(m_raytracingOutput);
     m_outputSize = size;
 
     auto usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc;
@@ -149,15 +139,16 @@ public:
     vk::Format     format  = vk::Format::eR32G32B32A32Sfloat;
 
     {
-      nvvkpp::ScopeCommandBuffer cmdBuf(m_device, m_queueIndex);
-      vk::SamplerCreateInfo      samplerCreateInfo;  // default values
-      vk::ImageCreateInfo        imageCreateInfo = nvvkpp::image::create2DInfo(size, format, usage);
+      nvvk::ScopeCommandBuffer cmdBuf(m_device, m_queueIndex);
+      vk::SamplerCreateInfo    samplerCreateInfo;  // default values
+      vk::ImageCreateInfo      imageCreateInfo = nvvk::makeImage2DCreateInfo(size, format, usage);
 
-      m_raytracingOutput = m_alloc.createImage(cmdBuf, imgSize, nullptr, imageCreateInfo, vk::ImageLayout::eGeneral);
-      m_raytracingOutput.descriptor = nvvkpp::image::create2DDescriptor(m_device, m_raytracingOutput.image, samplerCreateInfo,
-                                                                        format, vk::ImageLayout::eGeneral);
+      nvvk::ImageDma image = m_alloc->createImage(cmdBuf, imgSize, nullptr, imageCreateInfo, vk::ImageLayout::eGeneral);
+      vk::ImageViewCreateInfo ivInfo            = nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
+      m_raytracingOutput                        = m_alloc->createTexture(image, ivInfo, samplerCreateInfo);
+      m_raytracingOutput.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     }
-    m_alloc.flushStaging();
+    m_alloc->finalizeAndReleaseStaging();
   }
 
   //--------------------------------------------------------------------------------------------------
@@ -172,33 +163,34 @@ public:
                            const vk::DescriptorBufferInfo& matrixBuffer,
                            const vk::DescriptorBufferInfo& materialBuffer)
   {
-    m_binding.emplace_back(vkDSLB(0, vkDT::eAccelerationStructureNV, 1, vkSS::eRaygenNV | vkSS::eClosestHitNV));
-    m_binding.emplace_back(vkDSLB(1, vkDT::eStorageImage, 1, vkSS::eRaygenNV));                         // Output image
-    m_binding.emplace_back(vkDSLB(2, vkDT::eUniformBuffer, 1, vkSS::eRaygenNV | vkSS::eClosestHitNV));  // Scene, camera
-    m_binding.emplace_back(vkDSLB(3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));  // Primitive info
-    m_binding.emplace_back(vkDSLB(4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));  // Vertices
-    m_binding.emplace_back(vkDSLB(5, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));  // Indices
-    m_binding.emplace_back(vkDSLB(6, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));  // Normals
-    m_binding.emplace_back(vkDSLB(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));  // Matrix
-    m_binding.emplace_back(vkDSLB(8, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));  // material
+    m_binding.addBinding(vkDSLB(0, vkDT::eAccelerationStructureNV, 1, vkSS::eRaygenNV | vkSS::eClosestHitNV));
+    m_binding.addBinding(vkDSLB(1, vkDT::eStorageImage, 1, vkSS::eRaygenNV));                         // Output image
+    m_binding.addBinding(vkDSLB(2, vkDT::eUniformBuffer, 1, vkSS::eRaygenNV | vkSS::eClosestHitNV));  // Scene, camera
+    m_binding.addBinding(vkDSLB(3, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));                    // Primitive info
+    m_binding.addBinding(vkDSLB(4, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));                    // Vertices
+    m_binding.addBinding(vkDSLB(5, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));                    // Indices
+    m_binding.addBinding(vkDSLB(6, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));                    // Normals
+    m_binding.addBinding(vkDSLB(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));                    // Matrix
+    m_binding.addBinding(vkDSLB(8, vkDT::eStorageBuffer, 1, vkSS::eClosestHitNV));                    // material
 
-    m_rtDescPool      = util::createDescriptorPool(m_device, m_binding);
-    m_rtDescSetLayout = util::createDescriptorSetLayout(m_device, m_binding);
+    m_rtDescPool      = m_binding.createPool(m_device);
+    m_rtDescSetLayout = m_binding.createLayout(m_device);
     m_rtDescSet       = m_device.allocateDescriptorSets({m_rtDescPool, 1, &m_rtDescSetLayout})[0];
 
-    vk::WriteDescriptorSetAccelerationStructureNV descAsInfo{1, &m_rtBuilder.getAccelerationStructure()};
+    vk::AccelerationStructureNV                   tlas = m_rtBuilder.getAccelerationStructure();
+    vk::WriteDescriptorSetAccelerationStructureNV descAsInfo{1, &tlas};
     vk::DescriptorImageInfo imageInfo{{}, m_raytracingOutput.descriptor.imageView, vk::ImageLayout::eGeneral};
 
     std::vector<vk::WriteDescriptorSet> writes;
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[0], &descAsInfo));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[1], &imageInfo));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[2], &sceneUbo));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[3], &primitiveInfo));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[4], &vertexBuffer));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[5], &indexBuffer));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[6], &normalBuffer));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[7], &matrixBuffer));
-    writes.emplace_back(util::createWrite(m_rtDescSet, m_binding[8], &materialBuffer));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 0, &descAsInfo));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 1, &imageInfo));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 2, &sceneUbo));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 3, &primitiveInfo));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 4, &vertexBuffer));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 5, &indexBuffer));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 6, &normalBuffer));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 7, &matrixBuffer));
+    writes.emplace_back(m_binding.makeWrite(m_rtDescSet, 8, &materialBuffer));
     m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
     updateDescriptorSet();
@@ -223,14 +215,11 @@ public:
   void createPipeline()
   {
     std::vector<std::string> paths = defaultSearchPaths;
-    vk::ShaderModule         raygenSM =
-        nvvkpp::util::createShaderModule(m_device, nvh::loadFile("shaders/pathtrace.rgen.spv", true, paths));
-    vk::ShaderModule missSM =
-        nvvkpp::util::createShaderModule(m_device, nvh::loadFile("shaders/pathtrace.rmiss.spv", true, paths));
+    vk::ShaderModule raygenSM = nvvk::createShaderModule(m_device, nvh::loadFile("shaders/pathtrace.rgen.spv", true, paths));
+    vk::ShaderModule missSM = nvvk::createShaderModule(m_device, nvh::loadFile("shaders/pathtrace.rmiss.spv", true, paths));
     vk::ShaderModule shadowmissSM =
-        nvvkpp::util::createShaderModule(m_device, nvh::loadFile("shaders/pathtraceShadow.rmiss.spv", true, paths));
-    vk::ShaderModule chitSM =
-        nvvkpp::util::createShaderModule(m_device, nvh::loadFile("shaders/pathtrace.rchit.spv", true, paths));
+        nvvk::createShaderModule(m_device, nvh::loadFile("shaders/pathtraceShadow.rmiss.spv", true, paths));
+    vk::ShaderModule chitSM = nvvk::createShaderModule(m_device, nvh::loadFile("shaders/pathtrace.rchit.spv", true, paths));
 
     std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
@@ -294,18 +283,18 @@ public:
     std::vector<uint8_t> shaderHandleStorage(sbtSize);
     m_device.getRayTracingShaderGroupHandlesNV(m_rtPipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
 
-    m_rtSBTBuffer = m_alloc.createBuffer(sbtSize, vk::BufferUsageFlagBits::eTransferSrc,
-                                         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+    m_rtSBTBuffer = m_alloc->createBuffer(sbtSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                          vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
     // Write the handles in the SBT
-    void* mapped = m_alloc.map(m_rtSBTBuffer);
+    void* mapped = m_alloc->map(m_rtSBTBuffer);
     auto* pData  = reinterpret_cast<uint8_t*>(mapped);
     for(uint32_t g = 0; g < groupCount; g++)
     {
       memcpy(pData, shaderHandleStorage.data() + g * groupHandleSize, groupHandleSize);  // raygen
       pData += groupHandleSize;
     }
-    m_alloc.unmap(m_rtSBTBuffer);
+    m_alloc->unmap(m_rtSBTBuffer);
   }
 
   //--------------------------------------------------------------------------------------------------
@@ -365,4 +354,3 @@ public:
     return modified;
   }
 };
-}  // namespace nvvkpp

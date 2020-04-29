@@ -9,7 +9,7 @@
 layout(location = 0) rayPayloadInNV PerRayData_pick prd;
 
 // Raytracing hit attributes: barycentrics
-hitAttributeNV vec3 attribs;
+hitAttributeNV vec2 attribs;
 
 void main()
 {
@@ -17,6 +17,4 @@ void main()
   prd.barycentrics = vec4(1.0 - attribs.x - attribs.y, attribs.x, attribs.y, 0);
   prd.instanceID = gl_InstanceID;
   prd.primitiveID = gl_PrimitiveID;
-
-
 }

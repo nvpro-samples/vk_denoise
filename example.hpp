@@ -28,7 +28,9 @@
 
 #pragma once
 
-#include <nvvkpp/appbase_vkpp.hpp>
+#include "vkalloc.hpp"
+
+#include "nvvk/appbase_vkpp.hpp"
 
 #include <nvh/gltfscene.hpp>
 
@@ -41,27 +43,21 @@
 //--------------------------------------------------------------------------------------------------
 // Default example base class
 //
-class DenoiseExample : public nvvkpp::AppBase
+class DenoiseExample : public nvvk::AppBase
 {
-  using nvvkBuffer   = nvvkpp::BufferDma;
-  using nvvkImage    = nvvkpp::ImageDma;
-  using nvvkTexture  = nvvkpp::TextureDma;
-  using nvvkAlloc    = nvvkpp::AllocatorDma;
-  using nvvkMemAlloc = nvvk::DeviceMemoryAllocator;
-
 public:
   DenoiseExample() = default;
 
-  void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t graphicsQueueIndex) override
+  void setup(const vk::Instance& instance, const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t graphicsQueueIndex) override
   {
 
     m_memAlloc.init(device, physicalDevice);
-    m_alloc.init(device, &m_memAlloc);
+    m_alloc.init(device, physicalDevice, &m_memAlloc);
 
-    AppBase::setup(device, physicalDevice, graphicsQueueIndex);
-    m_pathtracer.setup(device, physicalDevice, graphicsQueueIndex, m_memAlloc);
-    m_rayPicker.setup(device, physicalDevice, graphicsQueueIndex, m_memAlloc);
-    m_tonemapper.setup(device, physicalDevice, graphicsQueueIndex, m_memAlloc);
+    AppBase::setup(instance, device, physicalDevice, graphicsQueueIndex);
+    m_pathtracer.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
+    m_rayPicker.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
+    m_tonemapper.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
     m_denoiser.setup(device, physicalDevice, graphicsQueueIndex);
   }
 
@@ -121,15 +117,15 @@ private:
   vk::DescriptorPool      m_descriptorPool;
   vk::DescriptorSetLayout m_descriptorSetLayout;
   vk::DescriptorSet       m_descriptorSet;
-  nvvkTexture             m_imageIn;
-  nvvkTexture             m_imageOut;
+  nvvk::Texture             m_imageIn;
+  nvvk::Texture             m_imageOut;
 
-  std::vector<vk::DescriptorSetLayoutBinding> m_bindings;
+  nvvk::DescriptorSetBindings m_bindings;
 
-  Tonemapper         m_tonemapper;
-  DenoiserOptix      m_denoiser;
-  nvvkpp::PathTracer m_pathtracer;
-  nvvkpp::RayPicker  m_rayPicker;
+  Tonemapper    m_tonemapper;
+  DenoiserOptix m_denoiser;
+  PathTracer    m_pathtracer;
+  RayPicker     m_rayPicker;
 
   // GLTF scene model
   nvh::gltf::Scene      m_gltfScene;
@@ -137,17 +133,17 @@ private:
   std::vector<uint32_t> m_indices;
 
 
-  nvvkBuffer m_sceneBuffer;
-  nvvkBuffer m_vertexBuffer;
-  nvvkBuffer m_normalBuffer;
-  nvvkBuffer m_indexBuffer;
-  nvvkBuffer m_matrixBuffer;
-  nvvkBuffer m_materialBuffer;
-  nvvkBuffer m_primitiveInfoBuffer;
+  nvvk::Buffer m_sceneBuffer;
+  nvvk::Buffer m_vertexBuffer;
+  nvvk::Buffer m_normalBuffer;
+  nvvk::Buffer m_indexBuffer;
+  nvvk::Buffer m_matrixBuffer;
+  nvvk::Buffer m_materialBuffer;
+  nvvk::Buffer m_primitiveInfoBuffer;
 
 
-  nvvk::DeviceMemoryAllocator m_memAlloc;
-  nvvkAlloc                   m_alloc;
+  nvvk::DeviceMemoryAllocator   m_memAlloc;
+  nvvk::Allocator                     m_alloc;
 
 
   SceneUBO m_sceneUbo;

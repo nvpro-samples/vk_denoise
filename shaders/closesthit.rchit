@@ -11,7 +11,7 @@ layout(location = 0) rayPayloadInNV PerRayData_pathtrace prd;
 layout(location = 2) rayPayloadNV bool payloadShadow;
 
 // Raytracing hit attributes: barycentrics
-hitAttributeNV vec3 attribs;
+hitAttributeNV vec2 attribs;
 
 layout(binding = 0, set = 0) uniform accelerationStructureNV topLevelAS;
 

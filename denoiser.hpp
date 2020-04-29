@@ -35,21 +35,21 @@
 #include <cuda_runtime.h>
 
 #include "imgui.h"
-#include "nvvkpp/allocator_dedicated_vkpp.hpp"
-#include "nvvkpp/allocator_dma_vkpp.hpp"
-#include "nvvkpp/images_vkpp.hpp"
+
+#include "vkalloc.hpp"
+
+// for interop we use the dedicated allocator as well
+#include "nvvk/allocator_dedicated_vk.hpp"
+#include "nvvk/images_vk.hpp"
 #include "optix_types.h"
 
 
 struct DenoiserOptix
 {
-  using nvvkTexture = nvvkpp::TextureDma;
-  using nvvkBuffer  = nvvkpp::BufferDedicated;
-
   // Holding the Buffer for Cuda interop
   struct BufferCuda
   {
-    nvvkBuffer bufVk;  // The Vulkan allocated buffer
+    nvvk::BufferDedicated bufVk;  // The Vulkan allocated buffer
 
     // Extra for Cuda
 #ifdef WIN32
@@ -57,9 +57,9 @@ struct DenoiserOptix
 #else
     int handle = -1;
 #endif
-    void*  cudaPtr = nullptr;
+    void* cudaPtr = nullptr;
 
-    void destroy(nvvkpp::AllocatorVkExport& alloc)
+    void destroy(nvvk::AllocatorVkExport& alloc)
     {
       alloc.destroy(bufVk);
 #ifdef WIN32
@@ -78,7 +78,7 @@ struct DenoiserOptix
 
   void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex);
   int  initOptiX();
-  void denoiseImage(const nvvkTexture& imgIn, nvvkTexture* imgOut, const vk::Extent2D& imgSize);
+  void denoiseImage(const nvvk::Texture& imgIn, nvvk::Texture* imgOut, const vk::Extent2D& imgSize);
   void destroy();
   void createBufferCuda(BufferCuda& buf);
   void importMemory();
@@ -90,8 +90,8 @@ struct DenoiserOptix
 
 private:
   void allocateBuffers();
-  void bufferToImage(const vk::Buffer& pixelBufferOut, nvvkTexture* imgOut);
-  void imageToBuffer(const nvvkTexture& imgIn, const vk::Buffer& pixelBufferIn);
+  void bufferToImage(const vk::Buffer& pixelBufferOut, nvvk::Texture* imgOut);
+  void imageToBuffer(const nvvk::Texture& imgIn, const vk::Buffer& pixelBufferIn);
 
 
   OptixDenoiser        m_denoiser{nullptr};
@@ -106,7 +106,7 @@ private:
   vk::PhysicalDevice m_physicalDevice;
   uint32_t           m_queueIndex;
 
-  nvvkpp::AllocatorVkExport m_alloc;
+  nvvk::AllocatorVkExport m_alloc;
 
   vk::Extent2D m_imageSize;
   BufferCuda   m_pixelBufferIn;

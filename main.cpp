@@ -38,8 +38,10 @@
 #include "imgui_impl_glfw.h"
 #include "nvh/inputparser.h"
 #include "nvpsystem.hpp"
+#include "nvvk/context_vk.hpp"
 #include "nvvk/extensions_vk.hpp"
-#include "nvvkpp/context_vkpp.hpp"
+
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 // Default search path for shaders
 std::vector<std::string> defaultSearchPaths{
@@ -91,8 +93,8 @@ int main(int argc, char** argv)
   // Enabling the extension
   vk::PhysicalDeviceDescriptorIndexingFeaturesEXT feature;
 
-  //nvvkpp::ContextCreateInfo deviceInfo;
-  nvvkpp::ContextCreateInfo deviceInfo;
+  //nvvk::ContextCreateInfo deviceInfo;
+  nvvk::ContextCreateInfo deviceInfo;
   deviceInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
   deviceInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
 #ifdef WIN32
@@ -126,7 +128,7 @@ int main(int argc, char** argv)
 
 
   // Creating the Vulkan instance and device
-  nvvkpp::Context vkctx;
+  nvvk::Context vkctx;
   vkctx.init(deviceInfo);
 
   // Add Vulkan function pointer extensions
@@ -145,7 +147,7 @@ int main(int argc, char** argv)
     // Printing which GPU we are using
     //LOGI("Using %s \n", vkctx.m_physicalDevice.getProperties().deviceName);
 
-    example.setup(vkctx.m_device, vkctx.m_physicalDevice, vkctx.m_queueGCT.familyIndex);
+    example.setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice, vkctx.m_queueGCT.familyIndex);
     example.createSurface(surface, SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT);
     example.createDepthBuffer();
     example.createRenderPass();
@@ -174,7 +176,6 @@ int main(int argc, char** argv)
     example.display();  // infinitely drawing
   }
   example.destroy();
-  vkctx.m_instance.destroySurfaceKHR(surface);
   vkctx.deinit();
 
   glfwDestroyWindow(window);
