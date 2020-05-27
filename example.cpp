@@ -66,12 +66,8 @@ void DenoiseExample::initialize(const std::string& filename)
 
     if(fileLoaded)
     {
-      m_gltfScene.loadMaterials(gltfModel);
-      m_vertices.attributes["NORMAL"]     = {0, 1, 0};  // Attributes we are interested in
-      m_vertices.attributes["COLOR_0"]    = {1, 1, 1};
-      m_vertices.attributes["TEXCOORD_0"] = {0, 0};
-      m_gltfScene.loadMeshes(gltfModel, m_indices, m_vertices);
-      m_gltfScene.loadNodes(gltfModel);
+      m_gltfScene.importMaterials(gltfModel);
+      m_gltfScene.importDrawableNodes(gltfModel, nvh::GltfAttributes::Normal);
       m_gltfScene.computeSceneDimensions();
     }
     CameraManip.setLookat({-3, 6, -15}, {0, 6, 0}, {0, 1, 0});
@@ -102,43 +98,34 @@ void DenoiseExample::initialize(const std::string& filename)
     std::vector<uint32_t>                            blassOffset;
     std::vector<std::vector<VkGeometryNV>>           blass;
     std::vector<nvvk::RaytracingBuilderNV::Instance> rayInst;
-    m_primitiveOffsets.reserve(m_gltfScene.m_linearNodes.size());
+    m_primitiveOffsets.reserve(m_gltfScene.m_nodes.size());
 
     // BLAS - Storing each primitive in a geometry
     uint32_t blassID = 0;
-    for(auto& mesh : m_gltfScene.m_linearMeshes)
+    for(auto& mesh : m_gltfScene.m_primMeshes)
     {
       blassOffset.push_back(blassID);  // use by the TLAS to find the BLASS ID from the mesh ID
 
-      for(auto& primitive : mesh->m_primitives)
-      {
-        ++blassID;
-        auto geo = primitiveToGeometry(primitive);
-        blass.push_back({geo});
-      }
+      auto geo = primitiveToGeometry(mesh);
+      blass.push_back({geo});
     }
 
     // TLASS - Top level for each valid mesh
     uint32_t instID = 0;
-    for(auto& node : m_gltfScene.m_linearNodes)
+    for(auto& node : m_gltfScene.m_nodes)
     {
-      if(node->m_mesh != ~0u)
-      {
-        nvvk::RaytracingBuilderNV::Instance inst;
-        inst.transform = node->worldMatrix();
+      nvvk::RaytracingBuilderNV::Instance inst;
+      inst.transform = node.worldMatrix;
 
-        // Same transform for each primitive of the mesh
-        int primID = 0;
-        for(auto& primitive : m_gltfScene.m_linearMeshes[node->m_mesh]->m_primitives)
-        {
-          inst.instanceId = uint32_t(instID++);  // gl_InstanceID
-          inst.blasId     = blassOffset[node->m_mesh] + primID++;
-          rayInst.emplace_back(inst);
-          // The following is use to find the geometry information in the CHIT
-          m_primitiveOffsets.push_back({primitive.m_firstIndex, primitive.m_vertexOffset, primitive.m_materialIndex});
-        }
-      }
+      // Same transform for each primitive of the mesh
+      inst.instanceId = uint32_t(instID++);  // gl_InstanceID
+      inst.blasId     = node.primMesh;
+      rayInst.emplace_back(inst);
+      // The following is use to find the geometry information in the CHIT
+      auto& primMesh = m_gltfScene.m_primMeshes[node.primMesh];
+      m_primitiveOffsets.push_back({primMesh.firstIndex, primMesh.vertexOffset, primMesh.materialIndex});
     }
+
 
     // Uploading the geometry information
     {
@@ -187,7 +174,7 @@ void DenoiseExample::createDenoiseOutImage()
   nvvk::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
 
   vk::ImageCreateInfo     info   = nvvk::makeImage2DCreateInfo(m_size, vk::Format::eR32G32B32A32Sfloat);
-  nvvk::Image               image  = m_alloc.createImage(info);
+  nvvk::Image             image  = m_alloc.createImage(info);
   vk::ImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, info);
   m_imageOut                     = m_alloc.createTexture(image, ivInfo, vk::SamplerCreateInfo());
   nvvk::cmdBarrierImageLayout(cmdBuf, m_imageOut.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal);
@@ -196,17 +183,17 @@ void DenoiseExample::createDenoiseOutImage()
 //--------------------------------------------------------------------------------------------------
 // Converting a GLTF primitive in the Raytracing Geometry used for the BLASS
 //
-vk::GeometryNV DenoiseExample::primitiveToGeometry(const nvh::gltf::Primitive& prim)
+vk::GeometryNV DenoiseExample::primitiveToGeometry(const nvh::GltfPrimMesh& prim)
 {
   vk::GeometryTrianglesNV triangles;
   triangles.setVertexData(m_vertexBuffer.buffer);
-  triangles.setVertexOffset(prim.m_vertexOffset * sizeof(nvmath::vec3f));
-  triangles.setVertexCount(/*prim.m_indexCount);*/ static_cast<uint32_t>(m_vertices.position.size()));
+  triangles.setVertexOffset(prim.vertexOffset * sizeof(nvmath::vec3f));
+  triangles.setVertexCount(prim.vertexCount);
   triangles.setVertexStride(sizeof(nvmath::vec3f));
   triangles.setVertexFormat(vk::Format::eR32G32B32Sfloat);  // 3xfloat32 for vertices
   triangles.setIndexData(m_indexBuffer.buffer);
-  triangles.setIndexOffset(prim.m_firstIndex * sizeof(uint32_t));
-  triangles.setIndexCount(prim.m_indexCount);
+  triangles.setIndexOffset(prim.firstIndex * sizeof(uint32_t));
+  triangles.setIndexCount(prim.indexCount);
   triangles.setIndexType(vk::IndexType::eUint32);  // 32-bit indices
   vk::GeometryDataNV geoData;
   geoData.setTriangles(triangles);
@@ -235,7 +222,7 @@ void DenoiseExample::display()
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
     ImGui::Begin("Hello, Vulkan!", nullptr /*, ImGuiWindowFlags_AlwaysAutoResize*/);
 
-    ImGui::Text("%s", m_physicalDevice.getProperties().deviceName);
+    ImGui::Text("%s", &m_physicalDevice.getProperties().deviceName[0]);
     ImGui::Text("Frame number: %d", m_frameNumber);
     ImGui::Text("Samples: %d", m_frameNumber * m_pathtracer.m_pushC.samples);
 
@@ -372,41 +359,27 @@ void DenoiseExample::prepareUniformBuffers()
   m_sceneBuffer = m_alloc.createBuffer(cmdBuf, sizeof(SceneUBO), nullptr, vkBU::eUniformBuffer);
 
   // Creating the GPU buffer of the vertices
-  m_vertexBuffer = m_alloc.createBuffer(cmdBuf, m_vertices.position, vkBU::eVertexBuffer | vkBU::eStorageBuffer);
-  m_normalBuffer = m_alloc.createBuffer(cmdBuf, m_vertices.attributes["NORMAL"], vkBU::eVertexBuffer | vkBU::eStorageBuffer);
+  m_vertexBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_positions, vkBU::eVertexBuffer | vkBU::eStorageBuffer);
+  m_normalBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_normals, vkBU::eVertexBuffer | vkBU::eStorageBuffer);
 
   // Creating the GPU buffer of the indices
-  m_indexBuffer = m_alloc.createBuffer(cmdBuf, m_indices, vkBU::eIndexBuffer | vkBU::eStorageBuffer);
+  m_indexBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_indices, vkBU::eIndexBuffer | vkBU::eStorageBuffer);
 
   // Adding all node matrices of the scene in a single buffer (mesh primitives are duplicated)
-  std::vector<nvh::gltf::NodeMatrices> allMatrices;
-  allMatrices.reserve(m_gltfScene.m_linearNodes.size());
-  for(auto& node : m_gltfScene.m_linearNodes)
+  std::vector<NodeMatrices> allMatrices;
+  allMatrices.reserve(m_gltfScene.m_nodes.size());
+  for(auto& node : m_gltfScene.m_nodes)
   {
-    if(node->m_mesh != ~0u)
-    {
-      nvh::gltf::NodeMatrices nm;
-      nm.world   = node->worldMatrix();
-      nm.worldIT = nm.world;
-      nm.worldIT = nvmath::transpose(nvmath::invert(nm.worldIT));
-      auto& mesh = m_gltfScene.m_linearMeshes[node->m_mesh];
-      for(int i = 0; i < mesh->m_primitives.size(); ++i)
-      {
-        allMatrices.push_back(nm);
-      }
-    }
+    NodeMatrices nm;
+    nm.world   = node.worldMatrix;
+    nm.worldIT = nm.world;
+    nm.worldIT = nvmath::transpose(nvmath::invert(nm.worldIT));
+    allMatrices.push_back(nm);
   }
   m_matrixBuffer = m_alloc.createBuffer(cmdBuf, allMatrices, vkBU::eStorageBuffer);
 
-  // Materials
-  // Storing all material colors and information
-  std::vector<nvh::gltf::Material::PushC> allMaterials;
-  allMaterials.reserve(m_gltfScene.m_materials.size());
-  for(const auto& mat : m_gltfScene.m_materials)
-  {
-    allMaterials.push_back(mat.m_mat);
-  }
-  m_materialBuffer = m_alloc.createBuffer(cmdBuf, allMaterials, vkBU::eStorageBuffer);
+  // Materials: Storing all material colors and information
+  m_materialBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_materials, vkBU::eStorageBuffer);
 
   sc.submitAndWait(cmdBuf);
   m_alloc.finalizeAndReleaseStaging();
@@ -530,7 +503,8 @@ void DenoiseExample::onKeyboard(int key, int scancode, int action, int mods)
     o << "\n Primitive: " << pr.primitiveID;
     o << "\n Distance:  " << nvmath::length(pr.worldPos - m_sceneUbo.cameraPosition);
     uint  indexOffset  = m_primitiveOffsets[pr.intanceID].indexOffset + (3 * pr.primitiveID);
-    ivec3 ind          = ivec3(m_indices[indexOffset + 0], m_indices[indexOffset + 1], m_indices[indexOffset + 2]);
+    ivec3 ind          = ivec3(m_gltfScene.m_indices[indexOffset + 0], m_gltfScene.m_indices[indexOffset + 1],
+                      m_gltfScene.m_indices[indexOffset + 2]);
     uint  vertexOffset = m_primitiveOffsets[pr.intanceID].vertexOffset;
     o << "\n Position: " << pr.worldPos.x << ", " << pr.worldPos.y << ", " << pr.worldPos.z;
     std::cout << o.str();

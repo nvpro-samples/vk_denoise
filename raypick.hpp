@@ -87,7 +87,10 @@ public:
   }
 
 
-  const vk::Buffer& outputResult() const { return m_pickResult.buffer; }
+  VkBuffer outputResult() const
+  {
+    return m_pickResult.buffer;
+  }
 
   void destroy()
   {

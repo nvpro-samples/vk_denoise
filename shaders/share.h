@@ -57,17 +57,30 @@ struct Scene
 
 struct Material
 {
-  vec4  baseColorFactor;
+  int shadingModel;  // 0: metallic-roughness, 1: specular-glossiness
+
+  // PbrMetallicRoughness
+  vec4  pbrBaseColorFactor;
+  int   pbrBaseColorTexture;
+  float pbrMetallicFactor;
+  float pbrRoughnessFactor;
+  int   pbrMetallicRoughnessTexture;
+
+  // KHR_materials_pbrSpecularGlossiness
+  vec4  khrDiffuseFactor;
+  int   khrDiffuseTexture;
+  vec3  khrSpecularFactor;
+  float khrGlossinessFactor;
+  int   khrSpecularGlossinessTexture;
+
+  int   emissiveTexture;
   vec3  emissiveFactor;
-  float metallicFactor;  // 8
-  vec3  specularFactor;
-  float roughnessFactor;  // 12 -
-  int   alphaMode;        // 0: opaque, 1: mask, 2: blend
+  int   alphaMode;
   float alphaCutoff;
-  float glossinessFactor;
-  int   shadingModel;  // 16 - 0: metallic-roughness, 1: specular-glossiness
-  int   doubleSided;
-  int   pad0;
-  int   pad1;
-  int   pad2;
+  bool  doubleSided;
+
+  int   normalTexture;
+  float normalTextureScale;
+  int   occlusionTexture;
+  float occlusionTextureStrength;
 };

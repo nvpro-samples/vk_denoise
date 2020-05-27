@@ -106,7 +106,7 @@ private:
   {
     uint32_t indexOffset;
     uint32_t vertexOffset;
-    uint32_t materialIndex;
+    int      materialIndex;
   };
 
   std::vector<PrimitiveSBO> m_primitiveOffsets;
@@ -117,8 +117,8 @@ private:
   vk::DescriptorPool      m_descriptorPool;
   vk::DescriptorSetLayout m_descriptorSetLayout;
   vk::DescriptorSet       m_descriptorSet;
-  nvvk::Texture             m_imageIn;
-  nvvk::Texture             m_imageOut;
+  nvvk::Texture           m_imageIn;
+  nvvk::Texture           m_imageOut;
 
   nvvk::DescriptorSetBindings m_bindings;
 
@@ -128,10 +128,7 @@ private:
   RayPicker     m_rayPicker;
 
   // GLTF scene model
-  nvh::gltf::Scene      m_gltfScene;
-  nvh::gltf::VertexData m_vertices;
-  std::vector<uint32_t> m_indices;
-
+  nvh::GltfScene m_gltfScene;
 
   nvvk::Buffer m_sceneBuffer;
   nvvk::Buffer m_vertexBuffer;
@@ -142,12 +139,17 @@ private:
   nvvk::Buffer m_primitiveInfoBuffer;
 
 
-  nvvk::DeviceMemoryAllocator   m_memAlloc;
-  nvvk::Allocator                     m_alloc;
+  nvvk::DeviceMemoryAllocator m_memAlloc;
+  nvvk::Allocator             m_alloc;
 
 
   SceneUBO m_sceneUbo;
 
 
-  vk::GeometryNV primitiveToGeometry(const nvh::gltf::Primitive& prim);
+  vk::GeometryNV primitiveToGeometry(const nvh::GltfPrimMesh& prim);
+  struct NodeMatrices
+  {
+    nvmath::mat4f world;    // local to world
+    nvmath::mat4f worldIT;  // local to world, inverse-transpose (to transform normal vectors)
+  };
 };

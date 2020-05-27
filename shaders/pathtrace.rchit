@@ -60,7 +60,6 @@ layout(binding = 8, set = 0) readonly buffer _MaterialBuffer
 MaterialBuffer;
 
 
-
 // Return the vertex position
 vec3 getVertex(uint index)
 {
@@ -138,17 +137,17 @@ void main()
 
   Material m = MaterialBuffer.m[instanceInfo.i[gl_InstanceID].materialIndex];
 
-  vec3 diffuse_color = m.baseColorFactor.rgb;
+  vec3 diffuse_color = m.pbrBaseColorFactor.rgb;
   prd.origin         = origin;
   prd.attenuation    = prd.attenuation * diffuse_color / (M_PIf);
   prd.countEmitted   = 0;
 
 
-  if (m.emissiveFactor.r >= 1 || m.emissiveFactor.g >= 1 || m.emissiveFactor.b >= 1)
+  if(m.emissiveFactor.r >= 1 || m.emissiveFactor.g >= 1 || m.emissiveFactor.b >= 1)
   {
     prd.radiance = m.emissiveFactor;
-    prd.done = 1;
-	return;
+    prd.done     = 1;
+    return;
   }
 
 
@@ -160,15 +159,15 @@ void main()
   vec3 p;
   cosine_sample_hemisphere(z1, z2, p);
   inverse_transform(p, v.nrm, tangent, binormal);
-  prd.direction = p; // New sampling direction
+  prd.direction = p;  // New sampling direction
 
-  
-//  {
-//      prd.radiance = abs(p);
-//    prd.done = 1;
-//	return;
-//  }
-//
+
+  //  {
+  //      prd.radiance = abs(p);
+  //    prd.done = 1;
+  //	return;
+  //  }
+  //
 
   // Shadow trace for lights
   vec3 result = vec3(0, 0, 0);
