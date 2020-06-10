@@ -87,10 +87,7 @@ public:
   }
 
 
-  VkBuffer outputResult() const
-  {
-    return m_pickResult.buffer;
-  }
+  VkBuffer outputResult() const { return m_pickResult.buffer; }
 
   void destroy()
   {
@@ -193,7 +190,7 @@ public:
     rayPipelineInfo.setPGroups(m_groups.data());
     rayPipelineInfo.setMaxRecursionDepth(2);
     rayPipelineInfo.setLayout(m_pipelineLayout);
-    m_pipeline = m_device.createRayTracingPipelineNV({}, rayPipelineInfo, nullptr);
+    m_pipeline = m_device.createRayTracingPipelineNV({}, rayPipelineInfo).value;
 
     m_device.destroyShaderModule(raygenSM);
     m_device.destroyShaderModule(missSM);
