@@ -262,7 +262,7 @@ public:
     rayPipelineInfo.setPGroups(m_groups.data());
     rayPipelineInfo.setMaxRecursionDepth(2);
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
-    m_rtPipeline = m_device.createRayTracingPipelineNV({}, rayPipelineInfo).value;
+    m_rtPipeline = static_cast<const vk::Pipeline&>(m_device.createRayTracingPipelineNV({}, rayPipelineInfo));
 
     m_device.destroyShaderModule(raygenSM);
     m_device.destroyShaderModule(missSM);
