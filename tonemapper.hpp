@@ -63,6 +63,10 @@ public:
   // Attaching the input image
   void setInput(const vk::DescriptorImageInfo& descriptor)
   {
+    static vk::DescriptorImageInfo curDescriptor;
+    if(curDescriptor == descriptor)
+      return;
+    curDescriptor = descriptor;
     m_device.waitIdle();
     std::vector<vk::WriteDescriptorSet> writeDescriptorSets{{m_descriptorSet, 0, 0, 1, vkDT::eCombinedImageSampler, &descriptor}};
     m_device.updateDescriptorSets(writeDescriptorSets, nullptr);
@@ -152,7 +156,6 @@ public:
     }
   }
 
-  void setExposure(float value_) { m_pushCnt.exposure = value_; }
 
 private:
   // Render pass, no clear, no depth
@@ -204,8 +207,8 @@ private:
   {
     int   tonemapper{1};
     float gamma{2.2f};
-    float exposure{1.0f};
-  };
+    float exposure{5.0f};
+  } m_pushCnt;
 
 
   vk::RenderPass          m_renderPass;
@@ -219,8 +222,6 @@ private:
   vk::Extent2D            m_size{0, 0};
 
   nvvk::Texture    m_output;
-  uint32_t       m_queueIndex;
+  uint32_t         m_queueIndex;
   nvvk::Allocator* m_alloc;
-
-  pushConstant m_pushCnt{1, 2.2, 1.0};
 };

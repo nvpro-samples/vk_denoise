@@ -1,38 +1,46 @@
 //
-//  Copyright (c) 2019 NVIDIA Corporation.  All rights reserved.
+// Copyright (c) 2020 NVIDIA Corporation.  All rights reserved.
 //
-//  NVIDIA Corporation and its licensors retain all intellectual property and proprietary
-//  rights in and to this software, related documentation and any modifications thereto.
-//  Any use, reproduction, disclosure or distribution of this software and related
-//  documentation without an express license agreement from NVIDIA Corporation is strictly
-//  prohibited.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//  * Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//  * Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//  * Neither the name of NVIDIA CORPORATION nor the names of its
+//    contributors may be used to endorse or promote products derived
+//    from this software without specific prior written permission.
 //
-//  TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THIS SOFTWARE IS PROVIDED *AS IS*
-//  AND NVIDIA AND ITS SUPPLIERS DISCLAIM ALL WARRANTIES, EITHER EXPRESS OR IMPLIED,
-//  INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
-//  PARTICULAR PURPOSE.  IN NO EVENT SHALL NVIDIA OR ITS SUPPLIERS BE LIABLE FOR ANY
-//  SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER (INCLUDING, WITHOUT
-//  LIMITATION, DAMAGES FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF
-//  BUSINESS INFORMATION, OR ANY OTHER PECUNIARY LOSS) ARISING OUT OF THE USE OF OR
-//  INABILITY TO USE THIS SOFTWARE, EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF
-//  SUCH DAMAGES
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
 #include <optixPaging/optixPagingImpl.cpp>
 
 __host__ void optixPagingPullRequests( OptixPagingContext* context,
-                                       uint32_t*           devRequestedPages,
-                                       uint32_t            numRequestedPages,
-                                       uint32_t*           devStalePages,
-                                       uint32_t            numStalePages,
-                                       uint32_t*           devEvictablePages,
-                                       uint32_t            numEvictablePages,
-                                       uint32_t*           devNumPagesReturned )
+                                       unsigned int*       devRequestedPages,
+                                       unsigned int        numRequestedPages,
+                                       unsigned int*       devStalePages,
+                                       unsigned int        numStalePages,
+                                       unsigned int*       devEvictablePages,
+                                       unsigned int        numEvictablePages,
+                                       unsigned int*       devNumPagesReturned )
 {
-    checkCudaError( cudaMemset( devRequestedPages, 0, numRequestedPages * sizeof( uint32_t ) ) );
-    checkCudaError( cudaMemset( devStalePages, 0, numStalePages * sizeof( uint32_t ) ) );
-    checkCudaError( cudaMemset( devEvictablePages, 0, numEvictablePages * sizeof( uint32_t ) ) );
-    checkCudaError( cudaMemset( devNumPagesReturned, 0, 3 * sizeof( uint32_t ) ) );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( devRequestedPages, 0, numRequestedPages * sizeof( unsigned int ) ) );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( devStalePages, 0, numStalePages * sizeof( unsigned int ) ) );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( devEvictablePages, 0, numEvictablePages * sizeof( unsigned int ) ) );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( devNumPagesReturned, 0, 3 * sizeof( unsigned int ) ) );
 
     int numPagesPerThread = context->maxVaSizeInPages / 65536;
     numPagesPerThread     = ( numPagesPerThread + 31 ) & 0xFFFFFFE0;  // Round to nearest multiple of 32
@@ -50,14 +58,14 @@ __host__ void optixPagingPullRequests( OptixPagingContext* context,
 }
 
 __host__ void optixPagingPushMappings( OptixPagingContext* context,
-                                       MapType*            devFilledPages,
+                                       PageMapping*        devFilledPages,
                                        int                 filledPageCount,
-                                       uint32_t*           devInvalidatedPages,
+                                       unsigned int*       devInvalidatedPages,
                                        int                 invalidatedPageCount )
 {
     // Zero out the reference bits
-    uint32_t referenceBitsSizeInBytes = sizeof( uint32_t ) * static_cast<uint32_t>( context->residenceBits - context->usageBits );
-    checkCudaError( cudaMemset( context->usageBits, 0, referenceBitsSizeInBytes ) );
+    unsigned int referenceBitsSizeInBytes = sizeof( unsigned int ) * static_cast<unsigned int>( context->residenceBits - context->usageBits );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( context->usageBits, 0, referenceBitsSizeInBytes ) );
 
     const int numPagesPerThread = 2;
     const int numThreadsPerBlock = 128;
@@ -90,18 +98,18 @@ __host__ void optixPagingDestroy( OptixPagingContext* context )
     delete context;
 }
 
-__host__ void optixPagingCalculateSizes( uint32_t vaSizeInPages, OptixPagingSizes& sizes )
+__host__ void optixPagingCalculateSizes( unsigned int vaSizeInPages, OptixPagingSizes& sizes )
 {
     //TODO: decide on limit for sizes, add asserts
 
     // Number of entries * 8 bytes per entry
-    sizes.pageTableSizeInBytes = vaSizeInPages * sizeof( uint64_t );
+    sizes.pageTableSizeInBytes = vaSizeInPages * sizeof( unsigned long long );
 
     // Calc reference bits size with 128 byte alignnment, residence bits are same size.
     // Usage bits is the concatenation of the two.
-    uint32_t referenceBitsSizeInBytes = ( ( vaSizeInPages + 1023 ) & 0xFFFFFC00 ) / 8;
-    uint32_t residenceBitsSizeInBytes = referenceBitsSizeInBytes;
-    sizes.usageBitsSizeInBytes        = referenceBitsSizeInBytes + residenceBitsSizeInBytes;
+    unsigned int referenceBitsSizeInBytes = ( ( vaSizeInPages + 1023 ) & 0xFFFFFC00 ) / 8;
+    unsigned int residenceBitsSizeInBytes = referenceBitsSizeInBytes;
+    sizes.usageBitsSizeInBytes            = referenceBitsSizeInBytes + residenceBitsSizeInBytes;
 }
 
 __host__ void optixPagingSetup( OptixPagingContext* context, const OptixPagingSizes& sizes, int numWorkers )
@@ -109,9 +117,9 @@ __host__ void optixPagingSetup( OptixPagingContext* context, const OptixPagingSi
     // TODO: decide on limit for numWorkers, add asserts
 
     // This doubles as a memset and a check to make sure they allocated the device pointers
-    checkCudaError( cudaMemset( context->pageTable, 0, sizes.pageTableSizeInBytes ) );
-    checkCudaError( cudaMemset( context->usageBits, 0, sizes.usageBitsSizeInBytes * numWorkers ) );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( context->pageTable, 0, sizes.pageTableSizeInBytes ) );
+    OPTIX_PAGING_CHECK_CUDA_ERROR( cudaMemset( context->usageBits, 0, sizes.usageBitsSizeInBytes * numWorkers ) );
 
     // Set residence bits pointer in context (index half way into usage bits)
-    context->residenceBits = context->usageBits + ( sizes.usageBitsSizeInBytes / sizeof(uint32_t) / 2 );
+    context->residenceBits = context->usageBits + ( sizes.usageBitsSizeInBytes / sizeof(unsigned int) / 2 );
 }

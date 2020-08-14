@@ -65,7 +65,7 @@ public:
 
   void createDenoiseOutImage();
 
-  void display();
+  void renderFrame();
 
   bool uiLights(bool modified);
 
@@ -111,6 +111,7 @@ private:
 
   std::vector<PrimitiveSBO> m_primitiveOffsets;
   int                       m_frameNumber{0};
+  int                       m_maxFrames{100};
 
   vk::Pipeline            m_pipeline;
   vk::PipelineLayout      m_pipelineLayout;
@@ -134,7 +135,6 @@ private:
   nvvk::Buffer m_vertexBuffer;
   nvvk::Buffer m_normalBuffer;
   nvvk::Buffer m_indexBuffer;
-  nvvk::Buffer m_matrixBuffer;
   nvvk::Buffer m_materialBuffer;
   nvvk::Buffer m_primitiveInfoBuffer;
 
@@ -152,4 +152,7 @@ private:
     nvmath::mat4f world;    // local to world
     nvmath::mat4f worldIT;  // local to world, inverse-transpose (to transform normal vectors)
   };
+
+  // Timeline semaphores
+  uint64_t m_fenceValue{0};
 };

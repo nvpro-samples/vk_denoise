@@ -75,7 +75,7 @@ int main(int argc, char** argv)
   }
   else
   {
-    filename = nvh::findFile(R"(data/mesh_mat.gltf)", defaultSearchPaths);  // default scene
+    filename = nvh::findFile(R"(data/cornellBox.gltf)", defaultSearchPaths);  // default scene
   }
 
 
@@ -95,6 +95,7 @@ int main(int argc, char** argv)
 
   //nvvk::ContextCreateInfo deviceInfo;
   nvvk::ContextCreateInfo deviceInfo;
+  deviceInfo.setVersion(1, 1);
   deviceInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
   deviceInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
 #ifdef WIN32
@@ -116,6 +117,8 @@ int main(int argc, char** argv)
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME);
+  deviceInfo.addDeviceExtension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
+
 #ifdef WIN32
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
@@ -125,7 +128,9 @@ int main(int argc, char** argv)
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
   deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
 #endif
-
+  deviceInfo.addDeviceExtension(VK_KHR_MAINTENANCE1_EXTENSION_NAME);
+  vk::PhysicalDeviceTimelineSemaphoreFeatures timelineFeature;
+  deviceInfo.addDeviceExtension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, false, &timelineFeature);
 
   // Creating the Vulkan instance and device
   nvvk::Context vkctx;
@@ -173,7 +178,7 @@ int main(int argc, char** argv)
       continue;
 
     CameraManip.updateAnim();
-    example.display();  // infinitely drawing
+    example.renderFrame();  // infinitely drawing
   }
   example.destroy();
   vkctx.deinit();

@@ -5,9 +5,10 @@ struct PerRayData_pathtrace
   vec3 attenuation;
   vec3 origin;
   vec3 direction;
+  vec3 normal;
+  vec3 albedo;
   uint seed;
   int  depth;
-  int  countEmitted;
   int  done;
 };
 

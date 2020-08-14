@@ -1,33 +1,41 @@
 //
-//  Copyright (c) 2019 NVIDIA Corporation.  All rights reserved.
+// Copyright (c) 2020 NVIDIA Corporation.  All rights reserved.
 //
-//  NVIDIA Corporation and its licensors retain all intellectual property and proprietary
-//  rights in and to this software, related documentation and any modifications thereto.
-//  Any use, reproduction, disclosure or distribution of this software and related
-//  documentation without an express license agreement from NVIDIA Corporation is strictly
-//  prohibited.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//  * Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//  * Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//  * Neither the name of NVIDIA CORPORATION nor the names of its
+//    contributors may be used to endorse or promote products derived
+//    from this software without specific prior written permission.
 //
-//  TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THIS SOFTWARE IS PROVIDED *AS IS*
-//  AND NVIDIA AND ITS SUPPLIERS DISCLAIM ALL WARRANTIES, EITHER EXPRESS OR IMPLIED,
-//  INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
-//  PARTICULAR PURPOSE.  IN NO EVENT SHALL NVIDIA OR ITS SUPPLIERS BE LIABLE FOR ANY
-//  SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER (INCLUDING, WITHOUT
-//  LIMITATION, DAMAGES FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF
-//  BUSINESS INFORMATION, OR ANY OTHER PECUNIARY LOSS) ARISING OUT OF THE USE OF OR
-//  INABILITY TO USE THIS SOFTWARE, EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF
-//  SUCH DAMAGES
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
 #pragma once
 
 #include <cuda_runtime.h>
 
+#if !defined(__CUDACC_RTC__)
 #include <utility>
-
-#include <stdint.h>
 #include <stdio.h>
+#endif
 
-inline bool checkCudaError( cudaError_t err )
+inline bool optixPagingCheckCudaError( cudaError_t err )
 {
     if( err != cudaSuccess )
     {
@@ -36,6 +44,10 @@ inline bool checkCudaError( cudaError_t err )
     }
     return true;
 }
+
+#if !defined( OPTIX_PAGING_CHECK_CUDA_ERROR )
+#define OPTIX_PAGING_CHECK_CUDA_ERROR( err ) optixPagingCheckCudaError( err )
+#endif
 
 const int MAX_WORKER_THREADS = 32;
 
@@ -51,56 +63,62 @@ __host__ __device__ T maximum( T lhs, T rhs )
     return lhs > rhs ? lhs : rhs;
 }
 
-using MapType = std::pair<uint32_t, uint64_t>;
+struct PageMapping
+{
+    unsigned int id;
+    unsigned long long page;
+};
 
 struct OptixPagingSizes
 {
-    uint32_t pageTableSizeInBytes;  // only one for all workers
-    uint32_t usageBitsSizeInBytes;  // per worker
+    unsigned int pageTableSizeInBytes;  // only one for all workers
+    unsigned int usageBitsSizeInBytes;  // per worker
 };
 
 struct OptixPagingOptions
 {
-    uint32_t maxVaSizeInPages;
-    uint32_t initialVaSizeInPages;
+    unsigned int maxVaSizeInPages;
+    unsigned int initialVaSizeInPages;
 };
 
 struct OptixPagingContext
 {
-    uint32_t  maxVaSizeInPages;
-    uint32_t* usageBits;      // also beginning of referenceBits. [ referenceBits | residencesBits ]
-    uint32_t* residenceBits;  // located half way into usasgeBits.
-    uint64_t* pageTable;
+    unsigned int  maxVaSizeInPages;
+    unsigned int* usageBits;      // also beginning of referenceBits. [ referenceBits | residencesBits ]
+    unsigned int* residenceBits;  // located half way into usasgeBits.
+    unsigned long long* pageTable;
 };
 
+#ifndef __CUDACC_RTC__
 __host__ void optixPagingCreate( OptixPagingOptions* options, OptixPagingContext** context );
 __host__ void optixPagingDestroy( OptixPagingContext* context );
-__host__ void optixPagingCalculateSizes( uint32_t vaSizeInPages, OptixPagingSizes& sizes );
+__host__ void optixPagingCalculateSizes( unsigned int vaSizeInPages, OptixPagingSizes& sizes );
 __host__ void optixPagingSetup( OptixPagingContext* context, const OptixPagingSizes& sizes, int numWorkers );
 __host__ void optixPagingPullRequests( OptixPagingContext* context,
-                                       uint32_t*           devRequestedPages,
-                                       uint32_t            numRequestedPages,
-                                       uint32_t*           devStalePages,
-                                       uint32_t            numStalePages,
-                                       uint32_t*           devEvictablePages,
-                                       uint32_t            numEvictablePages,
-                                       uint32_t*           devNumPagesReturned );
+                                       unsigned int*       devRequestedPages,
+                                       unsigned int        numRequestedPages,
+                                       unsigned int*       devStalePages,
+                                       unsigned int        numStalePages,
+                                       unsigned int*       devEvictablePages,
+                                       unsigned int        numEvictablePages,
+                                       unsigned int*       devNumPagesReturned );
 __host__ void optixPagingPushMappings( OptixPagingContext* context,
-                                       MapType*            devFilledPages,
+                                       PageMapping*            devFilledPages,
                                        int                 filledPageCount,
-                                       uint32_t*           devInvalidatedPages,
+                                       unsigned int*       devInvalidatedPages,
                                        int                 invalidatedPageCount );
+#endif
 
 #if defined( __CUDACC__ ) || defined( OPTIX_PAGING_BIT_OPS )
-__device__ inline void atomicSetBit( uint32_t bitIndex, uint32_t* bitVector )
+__device__ inline void atomicSetBit( unsigned int bitIndex, unsigned int* bitVector )
 {
-    const uint32_t wordIndex = bitIndex >> 5;
-    const uint32_t bitOffset = bitIndex % 32;
-    const uint32_t mask      = 1U << bitOffset;
+    const unsigned int wordIndex = bitIndex >> 5;
+    const unsigned int bitOffset = bitIndex % 32;
+    const unsigned int mask      = 1U << bitOffset;
     atomicOr( bitVector + wordIndex, mask );
 }
 
-__device__ inline void atomicUnsetBit( int bitIndex, uint32_t* bitVector )
+__device__ inline void atomicUnsetBit( int bitIndex, unsigned int* bitVector )
 {
     const int wordIndex = bitIndex / 32;
     const int bitOffset = bitIndex % 32;
@@ -109,14 +127,14 @@ __device__ inline void atomicUnsetBit( int bitIndex, uint32_t* bitVector )
     atomicAnd( bitVector + wordIndex, mask );
 }
 
-__device__ inline bool checkBitSet( uint32_t bitIndex, const uint32_t* bitVector )
+__device__ inline bool checkBitSet( unsigned int bitIndex, const unsigned int* bitVector )
 {
-    const uint32_t wordIndex = bitIndex >> 5;
-    const uint32_t bitOffset = bitIndex % 32;
+    const unsigned int wordIndex = bitIndex >> 5;
+    const unsigned int bitOffset = bitIndex % 32;
     return ( bitVector[wordIndex] & ( 1U << bitOffset ) ) != 0;
 }
 
-__device__ inline uint64_t optixPagingMapOrRequest( uint32_t* usageBits, uint32_t* residenceBits, uint64_t* pageTable, uint32_t page, bool* valid )
+__device__ inline unsigned long long optixPagingMapOrRequest( unsigned int* usageBits, unsigned int* residenceBits, unsigned long long* pageTable, unsigned int page, bool* valid )
 {
     bool requested = checkBitSet( page, usageBits );
     if( !requested )

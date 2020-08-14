@@ -70,24 +70,23 @@ void DenoiseExample::initialize(const std::string& filename)
       m_gltfScene.importDrawableNodes(gltfModel, nvh::GltfAttributes::Normal);
       m_gltfScene.computeSceneDimensions();
     }
-    CameraManip.setLookat({-3, 6, -15}, {0, 6, 0}, {0, 1, 0});
+    CameraManip.setLookat({0, 6, 15}, {0, 6, 0}, {0, 1, 0});
 
     // Set the camera as to see the model
     fitCamera(m_gltfScene.m_dimensions.min, m_gltfScene.m_dimensions.max);
   }
 
-  // Empty out
-  //  vk::DeviceSize bufSize = m_size.width * m_size.height * 4 * sizeof(float);
 
+  // Create the image to receive the denoised version
   createDenoiseOutImage();
 
 
   // Lights
   m_sceneUbo.nbLights           = 2;
   m_sceneUbo.lights[0].position = nvmath::vec4f(10, 10, 10, 1);
-  m_sceneUbo.lights[0].color    = nvmath::vec4f(1, 0, 0, 10000);
+  m_sceneUbo.lights[0].color    = nvmath::vec4f(1, 1, 1, 1000);
   m_sceneUbo.lights[1].position = nvmath::vec4f(-10, 10, 10, 1);
-  m_sceneUbo.lights[1].color    = nvmath::vec4f(0, 0, 1, 10000);
+  m_sceneUbo.lights[1].color    = nvmath::vec4f(1, 1, 1, 10);
 
   prepareUniformBuffers();
   createDescriptor();
@@ -140,13 +139,12 @@ void DenoiseExample::initialize(const std::string& filename)
     vk::DescriptorBufferInfo vertexDesc{m_vertexBuffer.buffer, 0, VK_WHOLE_SIZE};
     vk::DescriptorBufferInfo indexDesc{m_indexBuffer.buffer, 0, VK_WHOLE_SIZE};
     vk::DescriptorBufferInfo normalDesc{m_normalBuffer.buffer, 0, VK_WHOLE_SIZE};
-    vk::DescriptorBufferInfo matrixDesc{m_matrixBuffer.buffer, 0, VK_WHOLE_SIZE};
     vk::DescriptorBufferInfo materialDesc{m_materialBuffer.buffer, 0, VK_WHOLE_SIZE};
 
     m_pathtracer.m_rtBuilder.buildBlas(blass);
     m_pathtracer.m_rtBuilder.buildTlas(rayInst);
     m_pathtracer.createOutputImage(m_size);
-    m_pathtracer.createDescriptorSet(sceneDesc, primDesc, vertexDesc, indexDesc, normalDesc, matrixDesc, materialDesc);
+    m_pathtracer.createDescriptorSet(sceneDesc, primDesc, vertexDesc, indexDesc, normalDesc, materialDesc);
     m_pathtracer.createPipeline();
     m_pathtracer.createShadingBindingTable();
     m_pathtracer.createSemaphores();
@@ -155,12 +153,14 @@ void DenoiseExample::initialize(const std::string& filename)
   // Using -SPACE- to pick an object
   vk::DescriptorBufferInfo sceneDesc{m_sceneBuffer.buffer, 0, VK_WHOLE_SIZE};
   m_rayPicker.initialize(m_pathtracer.m_rtBuilder.getAccelerationStructure(), sceneDesc);
+
   // Post-process tonemapper
   m_tonemapper.initialize(m_size);
-  m_tonemapper.setExposure(1.f);
 
   // Using the output of the tonemapper to display
   updateDescriptor(m_tonemapper.getOutput().descriptor);
+
+  m_denoiser.allocateBuffers(m_size);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -206,30 +206,27 @@ vk::GeometryNV DenoiseExample::primitiveToGeometry(const nvh::GltfPrimMesh& prim
 //--------------------------------------------------------------------------------------------------
 // Displaying the image with tonemapper
 //
-void DenoiseExample::display()
+void DenoiseExample::renderFrame()
 {
-  if(m_frameNumber < m_pathtracer.maxFrames)
-  {
-    m_frameNumber++;
-  }
+
 
   bool modified = false;
   {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     ImGui::SetNextWindowBgAlpha(0.8);
-    ImGui::SetNextWindowSize(ImVec2(150, 200), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(200, 300), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Hello, Vulkan!", nullptr /*, ImGuiWindowFlags_AlwaysAutoResize*/);
+    ImGui::Begin("Denoiser Setting", nullptr /*, ImGuiWindowFlags_AlwaysAutoResize*/);
 
     ImGui::Text("%s", &m_physicalDevice.getProperties().deviceName[0]);
     ImGui::Text("Frame number: %d", m_frameNumber);
     ImGui::Text("Samples: %d", m_frameNumber * m_pathtracer.m_pushC.samples);
-
+    ImGui::SliderInt("Max Frames", &m_maxFrames, 1, 1000);
     m_tonemapper.uiSetup();
-    modified = m_pathtracer.uiSetup();
-    m_denoiser.uiSetup(m_frameNumber, m_pathtracer.maxFrames);
-    modified = uiLights(modified);
+    modified |= m_pathtracer.uiSetup();
+    modified |= m_denoiser.uiSetup();
+    modified |= uiLights(modified);
 
     ImGui::End();
   }
@@ -238,6 +235,8 @@ void DenoiseExample::display()
   {
     m_frameNumber = 0;
   }
+  else if(m_frameNumber < m_maxFrames)
+    m_frameNumber++;
 
   // render the scene
   prepareFrame();
@@ -245,59 +244,80 @@ void DenoiseExample::display()
   clearValues[0].color = std::array<float, 4>({0.1f, 0.1f, 0.4f, 0.f});
   clearValues[1].setDepthStencil({1.0f, 0});
 
-  // Preparing the rendering
-  vk::CommandBuffer& cmdBuf = m_commandBuffers[getCurFrame()];
-  cmdBuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+  // Applying denoiser when on and when start denoiser frame is greather than current frame.
+  bool applyDenoise = (m_denoiser.m_denoisedMode == 1 && m_frameNumber >= m_denoiser.m_startDenoiserFrame);
 
-  updateUniformBuffer(cmdBuf);
+  // Tonemapper will use the denoiser output or direct ray tracer output
+  m_tonemapper.setInput(applyDenoise ? m_imageOut.descriptor : m_pathtracer.outputImages()[0].descriptor);
 
-  if(m_frameNumber < m_pathtracer.maxFrames)
+  vk::CommandBuffer& frameCmdBuf = m_commandBuffers[getCurFrame()];
+
+  if(m_frameNumber < m_maxFrames)
   {
-    // Raytracing
-    m_pathtracer.run(cmdBuf, m_frameNumber);
-  }
-
-  if(m_denoiser.denoisedMode == 1 && m_frameNumber >= m_denoiser.startDenoiserFrame)
-  {
-    if(m_frameNumber < m_pathtracer.maxFrames)
+    // When applying denoiser, submitting the ray tracer commands needs to be done before starting to
+    // denoise.
+    if(applyDenoise)
     {
-      m_denoiser.denoiseImage(m_pathtracer.m_raytracingOutput, &m_imageOut, m_size);
+      nvvk::CommandPool cmdPool(m_device, m_graphicsQueueIndex);
+      auto              cmdBuf1 = cmdPool.createCommandBuffer();
+      updateUniformBuffer(cmdBuf1);
+      m_pathtracer.run(cmdBuf1, m_frameNumber);
+      m_denoiser.imageToBuffer(cmdBuf1, m_pathtracer.outputImages());
+      m_denoiser.submitWithSemaphore(cmdBuf1, m_fenceValue);
+      m_denoiser.denoiseImageBuffer(cmdBuf1, &m_imageOut, m_fenceValue);
     }
-    m_tonemapper.setInput(m_imageOut.descriptor);
+
+    // Preparing the rendering
+    frameCmdBuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+    if(applyDenoise)
+    {
+      // The denoised buffer goes back to an image in the "frame" cmdBuf
+      m_denoiser.waitSemaphore(m_fenceValue);
+      m_denoiser.bufferToImage(frameCmdBuf, &m_imageOut);
+    }
+
+    // No denoising, update the camera buffers and ray trace.
+    if(!applyDenoise)
+    {
+      updateUniformBuffer(frameCmdBuf);
+      m_pathtracer.run(frameCmdBuf, m_frameNumber);
+    }
   }
+
   else
   {
-    m_tonemapper.setInput(m_pathtracer.m_raytracingOutput.descriptor);
+    frameCmdBuf.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
   }
 
+
   // Apply tonemapper, its output is set in the descriptor set
-  m_tonemapper.run(cmdBuf);
+  m_tonemapper.run(frameCmdBuf);
 
   // Drawing a quad (pass through + final.frag)
   vk::RenderPassBeginInfo renderPassBeginInfo = {m_renderPass, m_framebuffers[getCurFrame()], {{}, m_size}, 2, clearValues};
-  cmdBuf.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
+  frameCmdBuf.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
   //
-  setViewport(cmdBuf);
+  setViewport(frameCmdBuf);
 
   auto aspectRatio = static_cast<float>(m_size.width) / static_cast<float>(m_size.height);
-  cmdBuf.pushConstants<float>(m_pipelineLayout, vk::ShaderStageFlagBits::eFragment, 0, aspectRatio);
-  cmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline);
-  cmdBuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, m_descriptorSet, {});
+  frameCmdBuf.pushConstants<float>(m_pipelineLayout, vk::ShaderStageFlagBits::eFragment, 0, aspectRatio);
+  frameCmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, m_pipeline);
+  frameCmdBuf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_pipelineLayout, 0, m_descriptorSet, {});
 
-  cmdBuf.draw(3, 1, 0, 0);
+  frameCmdBuf.draw(3, 1, 0, 0);
 
   {
     // Drawing GUI
     ImGui::Render();
     ImDrawData* imguiDrawData = ImGui::GetDrawData();
-    ImGui::RenderDrawDataVK(cmdBuf, imguiDrawData);
+    ImGui::RenderDrawDataVK(frameCmdBuf, imguiDrawData);
     ImGui::EndFrame();
   }
 
   // End command buffer and submitting frame for display
-  cmdBuf.endRenderPass();
-  cmdBuf.end();
+  frameCmdBuf.endRenderPass();
+  frameCmdBuf.end();
   submitFrame();
 }
 
@@ -306,16 +326,16 @@ void DenoiseExample::display()
 //
 bool DenoiseExample::uiLights(bool modified)
 {
-  if(ImGui::CollapsingHeader("Lights"))
+  if(ImGui::CollapsingHeader("Extra Lights"))
   {
     for(int nl = 0; nl < m_sceneUbo.nbLights; nl++)
     {
       ImGui::PushID(nl);
       if(ImGui::TreeNode("##light", "Light %d", nl))
       {
-        modified = ImGui::DragFloat3("Position", &m_sceneUbo.lights[nl].position.x) || modified;
-        modified = ImGui::InputFloat("Intensity", &m_sceneUbo.lights[nl].color.w) || modified;
-        modified = ImGui::ColorEdit3("Color", (float*)&m_sceneUbo.lights[nl].color.x) || modified;
+        modified |= ImGui::DragFloat3("Position", &m_sceneUbo.lights[nl].position.x);
+        modified |= ImGui::SliderFloat("Intensity", &m_sceneUbo.lights[nl].color.w, 0, 1000);
+        modified |= ImGui::ColorEdit3("Color", (float*)&m_sceneUbo.lights[nl].color.x);
         ImGui::Separator();
         ImGui::TreePop();
       }
@@ -336,7 +356,7 @@ bool DenoiseExample::needToResetFrame()
 
   for(int i = 0; i < 16; i++)
   {
-    if(m_sceneUbo.model.mat_array[i] != refCamMatrix.mat_array[i])
+    if(CameraManip.getMatrix().mat_array[i] != refCamMatrix.mat_array[i])
     {
       refCamMatrix = m_sceneUbo.model;
       return true;
@@ -364,19 +384,6 @@ void DenoiseExample::prepareUniformBuffers()
 
   // Creating the GPU buffer of the indices
   m_indexBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_indices, vkBU::eIndexBuffer | vkBU::eStorageBuffer);
-
-  // Adding all node matrices of the scene in a single buffer (mesh primitives are duplicated)
-  std::vector<NodeMatrices> allMatrices;
-  allMatrices.reserve(m_gltfScene.m_nodes.size());
-  for(auto& node : m_gltfScene.m_nodes)
-  {
-    NodeMatrices nm;
-    nm.world   = node.worldMatrix;
-    nm.worldIT = nm.world;
-    nm.worldIT = nvmath::transpose(nvmath::invert(nm.worldIT));
-    allMatrices.push_back(nm);
-  }
-  m_matrixBuffer = m_alloc.createBuffer(cmdBuf, allMatrices, vkBU::eStorageBuffer);
 
   // Materials: Storing all material colors and information
   m_materialBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_materials, vkBU::eStorageBuffer);
@@ -442,7 +449,6 @@ void DenoiseExample::destroy()
   m_alloc.destroy(m_vertexBuffer);
   m_alloc.destroy(m_normalBuffer);
   m_alloc.destroy(m_indexBuffer);
-  m_alloc.destroy(m_matrixBuffer);
   m_alloc.destroy(m_materialBuffer);
   m_alloc.destroy(m_primitiveInfoBuffer);
 
@@ -502,10 +508,6 @@ void DenoiseExample::onKeyboard(int key, int scancode, int action, int mods)
     o << "\n Instance:  " << pr.intanceID;
     o << "\n Primitive: " << pr.primitiveID;
     o << "\n Distance:  " << nvmath::length(pr.worldPos - m_sceneUbo.cameraPosition);
-    uint  indexOffset  = m_primitiveOffsets[pr.intanceID].indexOffset + (3 * pr.primitiveID);
-    ivec3 ind          = ivec3(m_gltfScene.m_indices[indexOffset + 0], m_gltfScene.m_indices[indexOffset + 1],
-                      m_gltfScene.m_indices[indexOffset + 2]);
-    uint  vertexOffset = m_primitiveOffsets[pr.intanceID].vertexOffset;
     o << "\n Position: " << pr.worldPos.x << ", " << pr.worldPos.y << ", " << pr.worldPos.z;
     std::cout << o.str();
 
@@ -527,5 +529,6 @@ void DenoiseExample::onResize(int w, int h)
   createDenoiseOutImage();
   m_tonemapper.updateRenderTarget(m_size);
   updateDescriptor(m_tonemapper.getOutput().descriptor);
+  m_denoiser.allocateBuffers(m_size);
   m_frameNumber = -1;
 }

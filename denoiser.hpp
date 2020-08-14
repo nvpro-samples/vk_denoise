@@ -42,6 +42,7 @@
 #include "nvvk/allocator_dedicated_vk.hpp"
 #include "nvvk/images_vk.hpp"
 #include "optix_types.h"
+#include <driver_types.h>
 
 
 struct DenoiserOptix
@@ -78,20 +79,44 @@ struct DenoiserOptix
 
   void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex);
   int  initOptiX();
-  void denoiseImage(const nvvk::Texture& imgIn, nvvk::Texture* imgOut, const vk::Extent2D& imgSize);
+  void denoiseImageBuffer(const vk::CommandBuffer& cmdBuf, nvvk::Texture* imgOut, uint64_t& fenceValue);
   void destroy();
   void createBufferCuda(BufferCuda& buf);
   void importMemory();
-  void uiSetup(int& frameNumber, const int maxFrames);
+  bool uiSetup();
+
+  void allocateBuffers(const vk::Extent2D& imgSize);
+  void bufferToImage(const vk::CommandBuffer& cmdBuf, nvvk::Texture* imgOut);
+  void imageToBuffer(const vk::CommandBuffer& cmdBuf, const std::array<nvvk::Texture, 3>& imgIn);
+
+
+  void submitWithSemaphore(const vk::CommandBuffer& cmdBuf, uint64_t& fenceValue);
+  void waitSemaphore(uint64_t& fenceValue);
 
   // Ui
-  int denoisedMode{1};
-  int startDenoiserFrame{5};
+  int m_denoisedMode{1};
+  int m_startDenoiserFrame{0};
 
 private:
-  void allocateBuffers();
-  void bufferToImage(const vk::Buffer& pixelBufferOut, nvvk::Texture* imgOut);
-  void imageToBuffer(const nvvk::Texture& imgIn, const vk::Buffer& pixelBufferIn);
+  struct Semaphore
+  {
+    vk::Semaphore vkReady;
+    vk::Semaphore vkComplete;
+#ifdef WIN32
+    HANDLE readyHandle{INVALID_HANDLE_VALUE};
+    HANDLE completeHandle{INVALID_HANDLE_VALUE};
+#else
+    int readyHandle{-1};
+    int completeHandle{-1};
+#endif
+    cudaExternalSemaphore_t cuReady;
+    cudaExternalSemaphore_t cuComplete;
+
+  } m_semaphores;
+
+  void createSemaphores();
+
+  // For synchronizing with OpenGL
 
 
   OptixDenoiser        m_denoiser{nullptr};
@@ -106,9 +131,9 @@ private:
   vk::PhysicalDevice m_physicalDevice;
   uint32_t           m_queueIndex;
 
-  nvvk::AllocatorVkExport m_alloc;
+  nvvk::AllocatorVkExport m_allocEx;
 
-  vk::Extent2D m_imageSize;
-  BufferCuda   m_pixelBufferIn;
-  BufferCuda   m_pixelBufferOut;
+  vk::Extent2D              m_imageSize;
+  std::array<BufferCuda, 3> m_pixelBufferIn;  // RGB, Albedo, normal
+  BufferCuda                m_pixelBufferOut;
 };

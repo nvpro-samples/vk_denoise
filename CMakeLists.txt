@@ -63,7 +63,7 @@ file(GLOB GLSL_FILES *.glsl)
 #_compile_GLSL(<source(s)> <target spv> <LIST where files are appended>)
 UNSET(GLSL_SOURCES)
 UNSET(SPV_OUTPUT)
-file(GLOB_RECURSE GLSL_HEADER_FILES "shaders/*.h")
+file(GLOB_RECURSE GLSL_HEADER_FILES "shaders/*.glsl")
 file(GLOB_RECURSE GLSL_SOURCE_FILES
     "shaders/*.frag"
     "shaders/*.vert"

@@ -3,11 +3,11 @@
 #extension GL_GOOGLE_include_directive : enable
 
 
-#include "sampling.h"
-#include "share.h"
+#include "raycommon.glsl"
+#include "sampling.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureNV topLevelAS;
-layout(binding = 1, rgba32f, set = 0) uniform image2D image;
+layout(binding = 1, rgba32f, set = 0) uniform image2D image[];
 layout(binding = 2, set = 0) uniform UBOscene
 {
   Scene s;
@@ -31,17 +31,20 @@ const float PI = 3.141592653589;
 
 void main()
 {
+  vec3 res_normal = vec3(0);
+  vec3 res_albedo = vec3(0);
+
   vec3 hitValue = vec3(0);
   for(int smpl = 0; smpl < samples; ++smpl)
   {
     //uint seed = hash_value((gl_LaunchIDNV.y * gl_LaunchSizeNV.x + gl_LaunchIDNV.x) *samples+smpl)+ frame ;
-    uint  seed = tea(gl_LaunchIDNV.y * gl_LaunchSizeNV.x + gl_LaunchIDNV.x, frame*samples+smpl);
-    float r1 = radinv_fl(seed, 2);
-    float r2 = radinv_fl(seed, 3);
+    uint  seed = tea(gl_LaunchIDNV.y * gl_LaunchSizeNV.x + gl_LaunchIDNV.x, frame * samples + smpl);
+    float r1   = rnd(seed);
+    float r2   = rnd(seed);
 
     // Subpixel jitter: send the ray through a different position inside the pixel each time,
     // to provide antialiasing.
-    vec2 subpixel_jitter = (frame*samples+smpl) == 0 ? vec2(0.0f, 0.0f) : vec2(r1 - 0.5f, r2 - 0.5f);
+    vec2 subpixel_jitter = (frame * samples + smpl) == 0 ? vec2(0.0f, 0.0f) : vec2(r1 - 0.5f, r2 - 0.5f);
 
     const vec2 pixelCenter = vec2(gl_LaunchIDNV.xy) + vec2(0.5) + subpixel_jitter;
     const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeNV.xy);
@@ -57,12 +60,14 @@ void main()
     float tmin        = 0.001;
     float tmax        = 10000.0;
 
-    prd.result       = vec3(0.f);
-    prd.attenuation  = vec3(1.f);
-    prd.countEmitted = 1;
-    prd.done         = 0;
-    prd.seed         = seed;
-    prd.depth        = 0;
+    prd.result      = vec3(0.f);
+    prd.attenuation = vec3(1.f);
+    prd.done        = 0;
+    prd.seed        = seed;
+    prd.depth       = 0;
+    prd.normal      = vec3(0);
+    prd.albedo      = vec3(0);
+
 
     for(;;)
     {
@@ -75,9 +80,14 @@ void main()
       if(prd.depth >= 1)
       {
         float pcont = max(prd.attenuation.x, max(prd.attenuation.y, prd.attenuation.z));
-        if(radinv_fl(seed, 4 + 3 * prd.depth) >= pcont)
+        if(rnd(seed) >= pcont)
           break;
         prd.attenuation /= pcont;
+      }
+      else
+      {
+        res_normal = prd.normal;
+        res_albedo = prd.albedo;
       }
 
       prd.depth++;
@@ -93,15 +103,18 @@ void main()
 
 
   hitValue = hitValue / samples;
+
   // Do accumulation
   if(frame > 0)
   {
     float a         = 1.0f / float(frame);
-    vec3  old_color = imageLoad(image, ivec2(gl_LaunchIDNV.xy)).xyz;
-    imageStore(image, ivec2(gl_LaunchIDNV.xy), vec4(mix(old_color, hitValue, a), 1.f));
+    vec3  old_color = imageLoad(image[0], ivec2(gl_LaunchIDNV.xy)).xyz;
+    imageStore(image[0], ivec2(gl_LaunchIDNV.xy), vec4(mix(old_color, hitValue, a), 1.f));
   }
   else
   {
-    imageStore(image, ivec2(gl_LaunchIDNV.xy), vec4(hitValue, 1.f));
+    imageStore(image[0], ivec2(gl_LaunchIDNV.xy), vec4(hitValue, 1.f));
+    imageStore(image[1], ivec2(gl_LaunchIDNV.xy), vec4(res_albedo, 1.f));
+    imageStore(image[2], ivec2(gl_LaunchIDNV.xy), vec4(res_normal, 1.f));
   }
 }

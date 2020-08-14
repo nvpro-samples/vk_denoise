@@ -1,39 +1,47 @@
 //
-//  Copyright (c) 2019 NVIDIA Corporation.  All rights reserved.
+// Copyright (c) 2020 NVIDIA Corporation.  All rights reserved.
 //
-//  NVIDIA Corporation and its licensors retain all intellectual property and proprietary
-//  rights in and to this software, related documentation and any modifications thereto.
-//  Any use, reproduction, disclosure or distribution of this software and related
-//  documentation without an express license agreement from NVIDIA Corporation is strictly
-//  prohibited.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//  * Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//  * Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//  * Neither the name of NVIDIA CORPORATION nor the names of its
+//    contributors may be used to endorse or promote products derived
+//    from this software without specific prior written permission.
 //
-//  TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THIS SOFTWARE IS PROVIDED *AS IS*
-//  AND NVIDIA AND ITS SUPPLIERS DISCLAIM ALL WARRANTIES, EITHER EXPRESS OR IMPLIED,
-//  INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
-//  PARTICULAR PURPOSE.  IN NO EVENT SHALL NVIDIA OR ITS SUPPLIERS BE LIABLE FOR ANY
-//  SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER (INCLUDING, WITHOUT
-//  LIMITATION, DAMAGES FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF
-//  BUSINESS INFORMATION, OR ANY OTHER PECUNIARY LOSS) ARISING OUT OF THE USE OF OR
-//  INABILITY TO USE THIS SOFTWARE, EVEN IF NVIDIA HAS BEEN ADVISED OF THE POSSIBILITY OF
-//  SUCH DAMAGES
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
 #include <optixPaging/optixPaging.h>
 
-__device__ __forceinline__ uint32_t countSetBitsAndCalcIndex( const uint32_t laneId, const uint32_t pageBits, uint32_t* pageCount )
+__device__ __forceinline__ unsigned int countSetBitsAndCalcIndex( const unsigned int laneId, const unsigned int pageBits, unsigned int* pageCount )
 {
     // Each thread gets sum of all values of numSetBits for entire warp also do
     // a prefix sum for help indexing later on.
-    uint32_t numSetBits = __popc( pageBits );
-    uint32_t index      = numSetBits;
+    unsigned int numSetBits = __popc( pageBits );
+    unsigned int index      = numSetBits;
 
 #if defined( __CUDACC__ )
 #pragma unroll
 #endif
-    for( uint32_t i = 1; i < 32; i *= 2 )
+    for( unsigned int i = 1; i < 32; i *= 2 )
     {
         numSetBits += __shfl_xor_sync( 0xFFFFFFFF, numSetBits, i );
-        uint32_t n = __shfl_up_sync( 0xFFFFFFFF, index, i );
+        unsigned int n = __shfl_up_sync( 0xFFFFFFFF, index, i );
 
         if( laneId >= i )
             index += n;
@@ -54,12 +62,16 @@ __device__ __forceinline__ uint32_t countSetBitsAndCalcIndex( const uint32_t lan
     return index;
 }
 
-__device__ __forceinline__ void addPagesToList( uint32_t startingIndex, uint32_t pageBits, uint32_t pageBitOffset, uint32_t maxCount, uint32_t* outputArray )
+__device__ __forceinline__ void addPagesToList( unsigned int  startingIndex,
+                                                unsigned int  pageBits,
+                                                unsigned int  pageBitOffset,
+                                                unsigned int  maxCount,
+                                                unsigned int* outputArray )
 {
     while( pageBits != 0 && ( startingIndex < maxCount ) )
     {
         // Find index of least significant bit and clear it
-        uint32_t bitIndex = __ffs( pageBits ) - 1;
+        unsigned int bitIndex = __ffs( pageBits ) - 1;
         pageBits ^= ( 1U << bitIndex );
 
         // Add the requested page to the queue
@@ -67,38 +79,38 @@ __device__ __forceinline__ void addPagesToList( uint32_t startingIndex, uint32_t
     }
 }
 
-__global__ void devicePullRequests( uint32_t* usageBits,
-                                    uint32_t* residenceBits,
-                                    uint32_t  maxVaSizeInPages,
-                                    uint32_t* devRequestedPages,
-                                    uint32_t  numRequestedPages,
-                                    uint32_t* numRequestedPagesReturned,
-                                    uint32_t* devStalePages,
-                                    uint32_t  numStalePages,
-                                    uint32_t* numStalePagesReturned,
-                                    uint32_t* devEvictablePages,
-                                    uint32_t  numEvictablePages,
-                                    uint32_t* numEvictablePagesReturned )
+__global__ void devicePullRequests( unsigned int* usageBits,
+                                    unsigned int* residenceBits,
+                                    unsigned int  maxVaSizeInPages,
+                                    unsigned int* devRequestedPages,
+                                    unsigned int  numRequestedPages,
+                                    unsigned int* numRequestedPagesReturned,
+                                    unsigned int* devStalePages,
+                                    unsigned int  numStalePages,
+                                    unsigned int* numStalePagesReturned,
+                                    unsigned int* devEvictablePages,
+                                    unsigned int  numEvictablePages,
+                                    unsigned int* numEvictablePagesReturned )
 {
-    uint32_t globalIndex   = threadIdx.x + blockIdx.x * blockDim.x;
-    uint32_t pageBitOffset = globalIndex * 32;
+    unsigned int globalIndex   = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int pageBitOffset = globalIndex * 32;
 
-    const uint32_t laneId = globalIndex % 32;
+    const unsigned int laneId = globalIndex % 32;
     while( pageBitOffset < maxVaSizeInPages )
     {
-        const uint32_t requestWord   = usageBits[globalIndex];
-        const uint32_t residenceWord = residenceBits[globalIndex];
+        const unsigned int requestWord   = usageBits[globalIndex];
+        const unsigned int residenceWord = residenceBits[globalIndex];
 
         // Gather the outstanding page requests.  A request is 'outstanding' if it
         // is requested but not resident; otherwise we don't need to return the request
         // to the host.
-        const uint32_t outstandingRequests = ~residenceWord & requestWord;
-        const uint32_t requestIndex = countSetBitsAndCalcIndex( laneId, outstandingRequests, numRequestedPagesReturned );
+        const unsigned int outstandingRequests = ~residenceWord & requestWord;
+        const unsigned int requestIndex = countSetBitsAndCalcIndex( laneId, outstandingRequests, numRequestedPagesReturned );
         addPagesToList( requestIndex, outstandingRequests, pageBitOffset, numRequestedPages, devRequestedPages );
 
         // Gather the stale pages, which are pages that are resident but not requested.
-        const uint32_t stalePages = ~requestWord & residenceWord;
-        const uint32_t staleIndex = countSetBitsAndCalcIndex( laneId, stalePages, numStalePagesReturned );
+        const unsigned int stalePages = ~requestWord & residenceWord;
+        const unsigned int staleIndex = countSetBitsAndCalcIndex( laneId, stalePages, numStalePagesReturned );
         addPagesToList( staleIndex, stalePages, pageBitOffset, numStalePages, devStalePages );
 
         globalIndex += gridDim.x * blockDim.x;
@@ -115,19 +127,19 @@ __global__ void devicePullRequests( uint32_t* usageBits,
     }
 }
 
-__global__ void deviceFillPages( uint64_t* pageTable, uint32_t* residenceBits, MapType* devFilledPages, int filledPageCount )
+__global__ void deviceFillPages( unsigned long long* pageTable, unsigned int* residenceBits, PageMapping* devFilledPages, int filledPageCount )
 {
     int globalIndex = threadIdx.x + blockIdx.x * blockDim.x;
     while( globalIndex < filledPageCount )
     {
-        const MapType devFilledPage    = devFilledPages[globalIndex];
-        pageTable[devFilledPage.first] = devFilledPage.second;
-        atomicSetBit( devFilledPage.first, residenceBits );
+        const PageMapping& devFilledPage = devFilledPages[globalIndex];
+        pageTable[devFilledPage.id]      = devFilledPage.page;
+        atomicSetBit( devFilledPage.id, residenceBits );
         globalIndex += gridDim.x * blockDim.x;
     }
 }
 
-__global__ void deviceInvalidatePages( uint32_t* residenceBits, uint32_t* devInvalidatedPages, int invalidatedPageCount )
+__global__ void deviceInvalidatePages( unsigned int* residenceBits, unsigned int* devInvalidatedPages, int invalidatedPageCount )
 {
     int globalIndex = threadIdx.x + blockIdx.x * blockDim.x;
     while( globalIndex < invalidatedPageCount )

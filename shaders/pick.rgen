@@ -3,8 +3,8 @@
 #extension GL_GOOGLE_include_directive : enable
 
 
-#include "sampling.h"
-#include "share.h"
+#include "raycommon.glsl"
+#include "sampling.glsl"
 
 layout(binding = 0, set = 0) uniform accelerationStructureNV topLevelAS;
 layout(binding = 1, set = 0) buffer _resultPick
@@ -50,8 +50,8 @@ void main()
   traceNV(topLevelAS, rayFlags, cullMask, 0 /*sbtRecordOffset*/, 0 /*sbtRecordStride*/, 0 /*missIndex*/, origin.xyz,
           tmin, direction.xyz, tmax, 0 /*payload*/);
 
-  resultPick.worldPos = prd.worldPos;
-  resultPick.barycentrics =prd.barycentrics;
-  resultPick.instanceID = prd.instanceID;
-  resultPick.primitiveID = prd.primitiveID;
+  resultPick.worldPos     = prd.worldPos;
+  resultPick.barycentrics = prd.barycentrics;
+  resultPick.instanceID   = prd.instanceID;
+  resultPick.primitiveID  = prd.primitiveID;
 }
