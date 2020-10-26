@@ -170,6 +170,9 @@ int main(int argc, char** argv)
   example.setupGlfwCallbacks(window);
   ImGui_ImplGlfw_InitForVulkan(window, true);
 
+  ImGuiH::Control::style.ctrlPerc = 0.6;
+
+
   // Main loop
   while(!glfwWindowShouldClose(window))
   {

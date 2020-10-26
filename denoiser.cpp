@@ -37,6 +37,7 @@
 #include "denoiser.hpp"
 
 #include "fileformats/stb_image_write.h"
+#include "imgui_helper.h"
 #include "nvvk/commands_vk.hpp"
 
 
@@ -308,11 +309,11 @@ void DenoiserOptix::importMemory()
 bool DenoiserOptix::uiSetup()
 {
   bool modified = false;
-  if(ImGui::CollapsingHeader("Denoiser"))
+  if(ImGui::CollapsingHeader("Denoiser", ImGuiTreeNodeFlags_DefaultOpen))
   {
-    modified |= ImGui::Checkbox("Denoise", (bool*)&m_denoisedMode);
-    ImGui::Text("Start denoising at frame:");
-    modified |= ImGui::SliderInt("", &m_startDenoiserFrame, 0, 100);
+    modified |= ImGuiH::Control::Checkbox("Denoise", "", (bool*)&m_denoisedMode);
+    modified |= ImGuiH::Control::Slider("Start Frame", "Frame at which the denoiser starts to be applied",
+                                        &m_startDenoiserFrame, nullptr, ImGuiH::Control::Flags::Normal, 0, 99);
   }
   return modified;
 }

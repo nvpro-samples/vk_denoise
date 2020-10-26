@@ -208,26 +208,27 @@ vk::GeometryNV DenoiseExample::primitiveToGeometry(const nvh::GltfPrimMesh& prim
 //
 void DenoiseExample::renderFrame()
 {
-
-
   bool modified = false;
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+
+  if(m_show_gui)
   {
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    ImGui::SetNextWindowBgAlpha(0.8);
-    ImGui::SetNextWindowSize(ImVec2(200, 300), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Denoiser Setting", nullptr /*, ImGuiWindowFlags_AlwaysAutoResize*/);
-
-    ImGui::Text("%s", &m_physicalDevice.getProperties().deviceName[0]);
-    ImGui::Text("Frame number: %d", m_frameNumber);
-    ImGui::Text("Samples: %d", m_frameNumber * m_pathtracer.m_pushC.samples);
-    ImGui::SliderInt("Max Frames", &m_maxFrames, 1, 1000);
-    m_tonemapper.uiSetup();
-    modified |= m_pathtracer.uiSetup();
-    modified |= m_denoiser.uiSetup();
-    modified |= uiLights(modified);
-
+    using Gui = ImGuiH::Control;
+    ImGuiH::Panel::Begin(ImGuiH::Panel::Side::Right);
+    {
+      ImGui::Text("%s", &m_physicalDevice.getProperties().deviceName[0]);
+      Gui::Info("Frame number", "", std::to_string(m_frameNumber).c_str());
+      Gui::Info("Samples", "", std::to_string(m_frameNumber * m_pathtracer.m_pushC.samples).c_str());
+      modified |= Gui::Drag("Max Frames", "", &m_maxFrames, nullptr, Gui::Flags::Normal, 1);
+      //--
+      modified |= m_tonemapper.uiSetup();
+      modified |= m_pathtracer.uiSetup();
+      modified |= m_denoiser.uiSetup();
+      modified |= uiLights(modified);
+      ImGui::Separator();
+      Gui::Info("", "", "Press F10 to toggle panel", Gui::Flags::Disabled);
+    }
     ImGui::End();
   }
 
@@ -333,9 +334,10 @@ bool DenoiseExample::uiLights(bool modified)
       ImGui::PushID(nl);
       if(ImGui::TreeNode("##light", "Light %d", nl))
       {
-        modified |= ImGui::DragFloat3("Position", &m_sceneUbo.lights[nl].position.x);
-        modified |= ImGui::SliderFloat("Intensity", &m_sceneUbo.lights[nl].color.w, 0, 1000);
-        modified |= ImGui::ColorEdit3("Color", (float*)&m_sceneUbo.lights[nl].color.x);
+        modified |= ImGuiH::Control::Drag("Position", "", (vec3*)&m_sceneUbo.lights[nl].position);
+        modified |= ImGuiH::Control::Drag("Intensity", "", &m_sceneUbo.lights[nl].color.w, nullptr,
+                                          ImGuiH::Control::Flags::Normal, 0.f, std::numeric_limits<float>::max(), 10);
+        modified |= ImGuiH::Control::Color("Color", "", (float*)&m_sceneUbo.lights[nl].color.x);
         ImGui::Separator();
         ImGui::TreePop();
       }

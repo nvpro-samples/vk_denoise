@@ -27,6 +27,7 @@
 
 #include "pathtrace.hpp"
 #include "imgui.h"
+#include "imgui_helper.h"
 
 //--------------------------------------------------------------------------------------------------
 // Initializing the allocator and querying the raytracing properties
@@ -295,8 +296,8 @@ bool PathTracer::uiSetup()
   bool modified = false;
   if(ImGui::CollapsingHeader("Raytracing"))
   {
-    modified = ImGui::SliderInt("Max Ray Depth ", &m_pushC.depth, 1, 10);
-    modified = ImGui::SliderInt("Samples Per Frame", &m_pushC.samples, 1, 100) || modified;
+    modified |= ImGuiH::Control::Slider("Max Ray Depth", "", &m_pushC.depth, nullptr, ImGuiH::Control::Flags::Normal, 1, 10);
+    modified |= ImGuiH::Control::Slider("Samples Per Frame", "", &m_pushC.samples, nullptr, ImGuiH::Control::Flags::Normal, 1, 100);
   }
   return modified;
 }

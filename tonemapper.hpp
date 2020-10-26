@@ -143,17 +143,20 @@ public:
   }
 
   // Controlling the tonemapper
-  void uiSetup()
+  bool uiSetup()
   {
+    bool modified{false};
     if(ImGui::CollapsingHeader("Lighting"))
     {
-      static const char* tmItem[] = {"Linear", "Uncharted 2", "Hejl Richard", "ACES"};
-      ImGui::Combo("Tonemapper", &m_pushCnt.tonemapper, tmItem, 4);
-      ImGui::InputFloat("Exposure", &m_pushCnt.exposure, 0.1f, 1.f);
-      ImGui::InputFloat("Gamma", &m_pushCnt.gamma, .1f, 1.f);
-      m_pushCnt.exposure = std::max(0.1f, std::min(m_pushCnt.exposure, 100.0f));
-      m_pushCnt.gamma    = std::max(0.1f, std::min(m_pushCnt.gamma, 3.0f));
+      using Gui = ImGuiH::Control;
+      static pushConstant d;
+
+      modified |= Gui::Selection("Tonemapper", "", &m_pushCnt.tonemapper, &d.tonemapper, Gui::Flags::Normal,
+                                 {"Linear", "Uncharted 2", "Hejl Richard", "ACES"});
+      modified |= Gui::Slider("Exposure", "", &m_pushCnt.exposure, &d.exposure, Gui::Flags::Normal, 0.1f, 100.f);
+      modified |= Gui::Slider("Gamma", "", &m_pushCnt.gamma, &d.gamma, Gui::Flags::Normal, .1f, 3.f);
     }
+    return modified;
   }
 
 
