@@ -153,7 +153,7 @@ int main(int argc, char** argv)
     //LOGI("Using %s \n", &vkctx.m_physicalDevice.getProperties().deviceName[0]);
 
     example.setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice, vkctx.m_queueGCT.familyIndex);
-    example.createSurface(surface, SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT);
+    example.createSwapchain(surface, SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT);
     example.createDepthBuffer();
     example.createRenderPass();
     example.createFrameBuffers();
