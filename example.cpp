@@ -46,6 +46,9 @@
 #include "nvh/fileoperations.hpp"
 #include "tonemapper.hpp"
 
+#include "shaders/gltf.glsl"
+
+
 extern std::vector<std::string> defaultSearchPaths;
 
 
@@ -388,7 +391,33 @@ void DenoiseExample::prepareUniformBuffers()
   m_indexBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_indices, vkBU::eIndexBuffer | vkBU::eStorageBuffer);
 
   // Materials: Storing all material colors and information
-  m_materialBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_materials, vkBU::eStorageBuffer);
+  std::vector<GltfShadeMaterial> shadeMaterials;
+  for(auto& m : m_gltfScene.m_materials)
+  {
+    shadeMaterials.emplace_back(GltfShadeMaterial{m.shadingModel,
+                                                  m.pbrBaseColorFactor,
+                                                  m.pbrBaseColorTexture,
+                                                  m.pbrMetallicFactor,
+                                                  m.pbrRoughnessFactor,
+                                                  m.pbrMetallicRoughnessTexture,
+                                                  m.khrDiffuseFactor,
+                                                  m.khrDiffuseTexture,
+                                                  m.khrSpecularFactor,
+                                                  m.khrGlossinessFactor,
+                                                  m.khrSpecularGlossinessTexture,
+                                                  m.emissiveTexture,
+                                                  m.emissiveFactor,
+                                                  m.alphaMode,
+                                                  m.alphaCutoff,
+                                                  m.doubleSided,
+                                                  m.normalTexture,
+                                                  m.normalTextureScale,
+                                                  m.occlusionTexture,
+                                                  m.occlusionTextureStrength
+
+    });
+  }
+  m_materialBuffer = m_alloc.createBuffer(cmdBuf, shadeMaterials, vkBU::eStorageBuffer);
 
   sc.submitAndWait(cmdBuf);
   m_alloc.finalizeAndReleaseStaging();
