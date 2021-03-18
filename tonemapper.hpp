@@ -28,8 +28,6 @@
 
 #pragma once
 
-#include "vkalloc.hpp"
-
 #include <nvvk/pipeline_vk.hpp>
 
 // Take as an input an image (RGB32F) and apply a tonemapper
@@ -48,8 +46,8 @@ public:
   {
     m_device     = device;
     m_queueIndex = queueIndex;
-
-    m_alloc = allocator;
+    m_alloc      = allocator;
+    m_debug.setup(device);
   }
 
   void initialize(const VkExtent2D& size)
@@ -68,7 +66,8 @@ public:
       return;
     curDescriptor = descriptor;
     m_device.waitIdle();
-    std::vector<vk::WriteDescriptorSet> writeDescriptorSets{{m_descriptorSet, 0, 0, 1, vkDT::eCombinedImageSampler, &descriptor}};
+    std::vector<vk::WriteDescriptorSet> writeDescriptorSets{
+        {m_descriptorSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &descriptor}};
     m_device.updateDescriptorSets(writeDescriptorSets, nullptr);
   }
 
@@ -90,6 +89,8 @@ public:
       nvvk::ImageDma           image  = m_alloc->createImage(cmdBuf, bufferSize, nullptr, imageCreateInfo);
       vk::ImageViewCreateInfo  ivInfo = nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
       m_output                        = m_alloc->createTexture(image, ivInfo, samplerCreateInfo);
+      NAME_VK(m_output.image);
+      NAME_VK(m_output.descriptor.imageView);
     }
     m_alloc->finalizeAndReleaseStaging();
 
@@ -109,7 +110,7 @@ public:
     info.setHeight(m_size.height);
     info.setLayers(1);
 
-    m_framebuffer = m_device.createFramebuffer(info);
+    CREATE_NAMED_VK(m_framebuffer, m_device.createFramebuffer(info));
   }
 
   void destroy()
@@ -128,6 +129,7 @@ public:
   // Executing the the tonemapper
   void run(const vk::CommandBuffer& cmdBuf)
   {
+    LABEL_SCOPE_VK(cmdBuf);
     vk::RenderPassBeginInfo renderPassBeginInfo = {m_renderPass, m_framebuffer, {{}, m_size}, 0, {}};
     cmdBuf.beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
@@ -176,41 +178,39 @@ private:
     subpassDescription.setPColorAttachments(&colorReference);
 
     vk::RenderPassCreateInfo renderPassInfo{{}, 1, &attachments, 1, &subpassDescription};
-    m_renderPass = m_device.createRenderPass(renderPassInfo);
+    CREATE_NAMED_VK(m_renderPass, m_device.createRenderPass(renderPassInfo));
   }
 
   // One input image and push constant to control the effect
   void createDescriptorSet()
   {
-    vk::DescriptorPoolSize         poolSizes         = {vkDT::eCombinedImageSampler, 1};
-    vk::DescriptorSetLayoutBinding setLayoutBindings = {0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment};
+    vk::DescriptorPoolSize         poolSizes         = {vk::DescriptorType::eCombinedImageSampler, 1};
+    vk::DescriptorSetLayoutBinding setLayoutBindings = {0, vk::DescriptorType::eCombinedImageSampler, 1,
+                                                        vk::ShaderStageFlagBits::eFragment};
     vk::PushConstantRange          push_constants    = {vk::ShaderStageFlagBits::eFragment, 0, sizeof(pushConstant)};
 
-    m_descriptorPool      = m_device.createDescriptorPool({{}, 1, 1, &poolSizes});
-    m_descriptorSetLayout = m_device.createDescriptorSetLayout({{}, 1, &setLayoutBindings});
-    m_descriptorSet       = m_device.allocateDescriptorSets({m_descriptorPool, 1, &m_descriptorSetLayout})[0];
-
-    m_pipelineLayout = m_device.createPipelineLayout({{}, 1, &m_descriptorSetLayout, 1, &push_constants});
+    CREATE_NAMED_VK(m_descriptorPool, m_device.createDescriptorPool({{}, 1, 1, &poolSizes}));
+    CREATE_NAMED_VK(m_descriptorSetLayout, m_device.createDescriptorSetLayout({{}, 1, &setLayoutBindings}));
+    CREATE_NAMED_VK(m_pipelineLayout, m_device.createPipelineLayout({{}, 1, &m_descriptorSetLayout, 1, &push_constants}));
+    m_descriptorSet = m_device.allocateDescriptorSets({m_descriptorPool, 1, &m_descriptorSetLayout})[0];
   }
 
   // Creating the shading pipeline
   void createPipeline()
   {
-    std::vector<std::string> paths = defaultSearchPaths;
-
     // Pipeline: completely generic, no vertices
     nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(m_device, m_pipelineLayout, m_renderPass);
-    pipelineGenerator.addShader(nvh::loadFile("shaders/passthrough.vert.spv", true, paths), vk::ShaderStageFlagBits::eVertex);
-    pipelineGenerator.addShader(nvh::loadFile("shaders/tonemap.frag.spv", true, paths), vk::ShaderStageFlagBits::eFragment);
+    pipelineGenerator.addShader(nvh::loadFile("spv/passthrough.vert.spv", true, defaultSearchPaths), vk::ShaderStageFlagBits::eVertex);
+    pipelineGenerator.addShader(nvh::loadFile("spv/tonemap.frag.spv", true, defaultSearchPaths), vk::ShaderStageFlagBits::eFragment);
     pipelineGenerator.rasterizationState.setCullMode(vk::CullModeFlagBits::eNone);
-    m_pipeline = pipelineGenerator.createPipeline();
+    CREATE_NAMED_VK(m_pipeline, pipelineGenerator.createPipeline());
   }
 
   struct pushConstant
   {
     int   tonemapper{1};
     float gamma{2.2f};
-    float exposure{5.0f};
+    float exposure{1.0f};
   } m_pushCnt;
 
 
@@ -227,4 +227,5 @@ private:
   nvvk::Texture    m_output;
   uint32_t         m_queueIndex;
   nvvk::Allocator* m_alloc;
+  nvvk::DebugUtil  m_debug;
 };

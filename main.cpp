@@ -34,8 +34,9 @@
 #include <array>
 #include <chrono>
 
+#include "config.hpp"
 #include "example.hpp"
-#include "imgui_impl_glfw.h"
+#include "imgui/backends/imgui_impl_glfw.h"
 #include "nvh/inputparser.h"
 #include "nvpsystem.hpp"
 #include "nvvk/context_vk.hpp"
@@ -44,17 +45,10 @@
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 // Default search path for shaders
-std::vector<std::string> defaultSearchPaths{
-    "./",
-    "../",
-    std::string(PROJECT_NAME),
-    std::string("SPV_" PROJECT_NAME),
-    PROJECT_ABSDIRECTORY,
-    NVPSystem::exePath() + std::string(PROJECT_RELDIRECTORY),
-};
+std::vector<std::string> defaultSearchPaths;
 
-int const SAMPLE_SIZE_WIDTH  = 800;
-int const SAMPLE_SIZE_HEIGHT = 600;
+int const SAMPLE_SIZE_WIDTH  = 1280;
+int const SAMPLE_SIZE_HEIGHT = 1024;
 
 
 //--------------------------------------------------------------------------------------------------
@@ -62,6 +56,17 @@ int const SAMPLE_SIZE_HEIGHT = 600;
 //
 int main(int argc, char** argv)
 {
+
+  // setup some basic things for the sample, logging file for example
+  NVPSystem system(PROJECT_NAME);
+
+  defaultSearchPaths = {
+      NVPSystem::exePath() + PROJECT_NAME,
+      NVPSystem::exePath() + R"(media)",
+      NVPSystem::exePath() + PROJECT_RELDIRECTORY,
+      NVPSystem::exePath() + PROJECT_DOWNLOAD_RELDIRECTORY,
+  };
+
   // Parsing the command line: mandatory '-f' for the filename of the scene
   InputParser parser(argc, argv);
   std::string filename = parser.getString("-f");
@@ -75,12 +80,9 @@ int main(int argc, char** argv)
   }
   else
   {
-    filename = nvh::findFile(R"(data/cornellBox.gltf)", defaultSearchPaths);  // default scene
+    filename = nvh::findFile(R"(cornellBox/cornellBox.gltf)", defaultSearchPaths, true);  // default scene
   }
 
-
-  // setup some basic things for the sample, logging file for example
-  NVPSystem system(argv[0], PROJECT_NAME);
 
   // Setup GLFW window
   if(!glfwInit())
@@ -90,64 +92,72 @@ int main(int argc, char** argv)
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   GLFWwindow* window = glfwCreateWindow(SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT, PROJECT_NAME, nullptr, nullptr);
 
-  // Enabling the extension
-  vk::PhysicalDeviceDescriptorIndexingFeaturesEXT feature;
 
-  //nvvk::ContextCreateInfo deviceInfo;
-  nvvk::ContextCreateInfo deviceInfo;
-  deviceInfo.setVersion(1, 1);
-  deviceInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
-  deviceInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
+  nvvk::ContextCreateInfo contextInfo;
+  contextInfo.setVersion(1, 2);
+
+  // VK_KHR_SURFACE, VK_KHR_WIN32, ...
+  uint32_t     count;
+  const char** extensions = glfwGetRequiredInstanceExtensions(&count);
+  for(uint32_t c = 0; c < count; c++)
+    contextInfo.addInstanceExtension(extensions[c]);
+
+  // Display
+  contextInfo.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+  // Ray tracing
+  vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature{VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE};
+  contextInfo.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false, &accelFeature);
+  vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature{VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE};
+  contextInfo.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false, &rtPipelineFeature);
+  contextInfo.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+  vk::PhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{VK_TRUE};
+  contextInfo.addDeviceExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME, false, &rayQueryFeatures);
+
+  // Semaphores - interop Vulkan/Cuda
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME);
 #ifdef WIN32
-  deviceInfo.addInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME);
 #else
-  deviceInfo.addInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
-  deviceInfo.addInstanceExtension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
 #endif
-  deviceInfo.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-  deviceInfo.addInstanceExtension(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
-  deviceInfo.addInstanceExtension(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
-  deviceInfo.addInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
 
-  deviceInfo.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, false, &feature);
-  deviceInfo.addDeviceExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_NV_RAY_TRACING_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
+  // Buffer - interop
+  contextInfo.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
 
-#ifdef WIN32
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME);
-#else
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-  deviceInfo.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
-#endif
-  deviceInfo.addDeviceExtension(VK_KHR_MAINTENANCE1_EXTENSION_NAME);
-  vk::PhysicalDeviceTimelineSemaphoreFeatures timelineFeature;
-  deviceInfo.addDeviceExtension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, false, &timelineFeature);
+  // Synchronization (mix of timeline and binary semaphores)
+  contextInfo.addDeviceExtension(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, false);
+  contextInfo.addDeviceExtension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, false);
+
+  // Shader - random number
+  contextInfo.addDeviceExtension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
+
 
   // Creating the Vulkan instance and device
   nvvk::Context vkctx;
-  vkctx.init(deviceInfo);
-
-  // Add Vulkan function pointer extensions
-  load_VK_EXTENSION_SUBSET(vkctx.m_instance, vkGetInstanceProcAddr, vkctx.m_device, vkGetDeviceProcAddr);
+  vkctx.init(contextInfo);
 
   DenoiseExample example;
 
-  // Window need to be opened to get the surface on which to draw
+  // Find surface from GLFW Window
   vk::SurfaceKHR surface = example.getVkSurface(vkctx.m_instance, window);
+  // Find VkQueues for the surface
   vkctx.setGCTQueueWithPresent(surface);
 
   try
   {
-    example.denoiser().initOptiX();
+#if USE_FLOAT
+    example.denoiser().initOptiX(OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL, OPTIX_PIXEL_FORMAT_FLOAT4, true);
+#else
+    example.denoiser().initOptiX(OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL, OPTIX_PIXEL_FORMAT_HALF4, true);
+#endif
 
     // Printing which GPU we are using
     //LOGI("Using %s \n", &vkctx.m_physicalDevice.getProperties().deviceName[0]);
@@ -180,8 +190,17 @@ int main(int argc, char** argv)
     if(example.isMinimized())
       continue;
 
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    if(example.showGui())
+    {
+      example.renderGui();
+    }
+    ImGui::EndFrame();
+
     CameraManip.updateAnim();
-    example.renderFrame();  // infinitely drawing
+    example.prepareFrame();
+    example.run();  // infinitely drawing
   }
   example.destroy();
   vkctx.deinit();

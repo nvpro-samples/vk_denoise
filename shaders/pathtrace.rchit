@@ -1,26 +1,27 @@
 #version 460
-#extension GL_NV_ray_tracing : require
+#extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
 //#extension GL_EXT_nonuniform_qualifier : enable
 
+#include "../config.hpp"
 #include "raycommon.glsl"
 #include "sampling.glsl"
 
 // Payload information of the ray returning: 0 hit, 2 shadow
-layout(location = 0) rayPayloadInNV PerRayData_pathtrace prd;
-layout(location = 2) rayPayloadNV bool payloadShadow;
+layout(location = 0) rayPayloadInEXT PerRayData_pathtrace prd;
+layout(location = 2) rayPayloadEXT bool payloadShadow;
 
 // Raytracing hit attributes: barycentrics
-hitAttributeNV vec2 attribs;
+hitAttributeEXT vec2 attribs;
 
 // clang-format off
-layout(binding = 0, set = 0) uniform accelerationStructureNV topLevelAS;
-layout(binding = 2, set = 0) uniform _ubo { Scene SceneInfo; };
-layout(binding = 3, set = 0) readonly buffer _OffsetIndices { primInfo InstanceInfo[]; } ;
-layout(binding = 4, set = 0) readonly buffer _VertexBuf { float VertexBuf[]; } ;
-layout(binding = 5, set = 0) readonly buffer _Indices { uint IndexBuf[]; } ;
-layout(binding = 6, set = 0) readonly buffer _NormalBuf { float NormalBuf[]; } ;
-layout(binding = 8, set = 0) readonly buffer _MaterialBuffer { Material m[]; } MaterialBuffer;
+layout(binding = B_BVH, set = 0) uniform accelerationStructureEXT topLevelAS;
+layout(binding = B_SCENE, set = 0) uniform _ubo { Scene SceneInfo; };
+layout(binding = B_PRIM_INFO, set = 0) readonly buffer _OffsetIndices { primInfo InstanceInfo[]; } ;
+layout(binding = B_VERTEX, set = 0) readonly buffer _VertexBuf { float VertexBuf[]; } ;
+layout(binding = B_INDEX, set = 0) readonly buffer _Indices { uint IndexBuf[]; } ;
+layout(binding = B_NORMAL, set = 0) readonly buffer _NormalBuf { float NormalBuf[]; } ;
+layout(binding = B_MATERIAL, set = 0) readonly buffer _MaterialBuffer { Material m[]; } MaterialBuffer;
 // clang-format on
 
 // Return the vertex position
@@ -66,8 +67,8 @@ Vertex getVertex(ivec3 trianglIndex, uint vertexOffset, vec3 barycentrics)
   vtx.nrm = normalize(v0.nrm * barycentrics.x + v1.nrm * barycentrics.y + v2.nrm * barycentrics.z);
 
   // World space
-  vtx.pos = vec3(gl_ObjectToWorldNV * vec4(vtx.pos, 1.0));
-  vtx.nrm = normalize(vec3(vtx.nrm * gl_WorldToObjectNV));
+  vtx.pos = vec3(gl_ObjectToWorldEXT * vec4(vtx.pos, 1.0));
+  vtx.nrm = normalize(vec3(vtx.nrm * gl_WorldToObjectEXT));
 
   return vtx;
 }
@@ -93,7 +94,7 @@ void main()
   //------------------------------------------------
 
   vec3 origin;  // = v.pos;
-  //origin = gl_WorldRayOriginNV + gl_WorldRayDirectionNV * gl_HitTNV;;
+  //origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;;
   origin = offsetRay(v.pos, v.nrm);
   //origin = offsetRay(origin, v.nrm);
 
@@ -140,9 +141,9 @@ void main()
     float tmax    = lightDist;
     if(dotNL > 0)
     {
-      traceNV(topLevelAS, gl_RayFlagsTerminateOnFirstHitNV | gl_RayFlagsOpaqueNV | gl_RayFlagsSkipClosestHitShaderNV,
-              0xFF, 1 /* sbtRecordOffset */, 0 /* sbtRecordStride */, 1 /* missIndex */, origin, tmin, lightDir, tmax,
-              2 /*payload location*/);
+      traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                  0xFF, 1 /* sbtRecordOffset */, 0 /* sbtRecordStride */, 1 /* missIndex */, origin, tmin, lightDir,
+                  tmax, 2 /*payload location*/);
     }
 
     if(payloadShadow)

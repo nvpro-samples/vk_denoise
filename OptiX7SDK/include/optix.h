@@ -34,7 +34,7 @@
 /// - major =  OPTIX_VERSION/10000
 /// - minor = (OPTIX_VERSION%10000)/100
 /// - micro =  OPTIX_VERSION%100
-#define OPTIX_VERSION 70100
+#define OPTIX_VERSION 70200
 
 
 #ifdef __CUDACC__

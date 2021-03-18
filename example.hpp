@@ -28,15 +28,14 @@
 
 #pragma once
 
-#include "vkalloc.hpp"
-
 #include "nvvk/appbase_vkpp.hpp"
 
 #include <nvh/gltfscene.hpp>
 
 #include "denoiser.hpp"
+#include "nvvk/debug_util_vk.hpp"
 #include "pathtrace.hpp"
-#include "raypick.hpp"
+#include "raypick_KHR.hpp"
 #include "tonemapper.hpp"
 
 
@@ -48,38 +47,37 @@ class DenoiseExample : public nvvk::AppBase
 public:
   DenoiseExample() = default;
 
-  void setup(const vk::Instance& instance, const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t graphicsQueueIndex) override
-  {
-
-    m_memAlloc.init(device, physicalDevice);
-    m_alloc.init(device, physicalDevice, &m_memAlloc);
-
-    AppBase::setup(instance, device, physicalDevice, graphicsQueueIndex);
-    m_pathtracer.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
-    m_rayPicker.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
-    m_tonemapper.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
-    m_denoiser.setup(device, physicalDevice, graphicsQueueIndex);
-  }
+  void setup(const vk::Instance& instance, const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t graphicsQueueIndex) override;
 
   void initialize(const std::string& filename);
 
+  void createSwapchain(const vk::SurfaceKHR& surface,
+                       uint32_t              width,
+                       uint32_t              height,
+                       vk::Format            colorFormat = vk::Format::eB8G8R8A8Unorm,
+                       vk::Format            depthFormat = vk::Format::eUndefined,
+                       bool                  vsync       = false) override;
+
   void createDenoiseOutImage();
 
-  void renderFrame();
+  void run();
 
   bool uiLights(bool modified);
 
-  bool needToResetFrame();
+  void submitWithTLSemaphore(const vk::CommandBuffer& cmdBuf);
+  void submitFrame(const vk::CommandBuffer& cmdBuf);
+  void updateFrameNumber();
+  void resetFrame();
+  void createRenderPass() override;
 
-  void prepareUniformBuffers();
-  void createDescriptor();
-  void updateDescriptor(const vk::DescriptorImageInfo& descriptor);
-  void createPipeline();
+  void createSceneBuffers();
   void destroy() override;
-  void updateUniformBuffer(const vk::CommandBuffer& cmdBuffer);
+  void updateCameraBuffer(const vk::CommandBuffer& cmdBuf);
   void onKeyboard(int key, int scancode, int action, int mods) override;
 
   void           onResize(int w, int h) override;
+  void           renderGui();
+  bool           uiDenoiser();
   DenoiserOptix& denoiser() { return m_denoiser; }
 
 private:
@@ -87,8 +85,6 @@ private:
   {
     nvmath::vec4f position{50.f, 50.f, 50.f, 1.f};
     nvmath::vec4f color{1.f, 1.f, 1.f, 1.f};
-    //float         intensity{10.f};
-    //float         _pad;
   };
   struct SceneUBO
   {
@@ -111,22 +107,17 @@ private:
 
   std::vector<PrimitiveSBO> m_primitiveOffsets;
   int                       m_frameNumber{0};
-  int                       m_maxFrames{100};
+  int                       m_maxFrames{1000};
 
-  vk::Pipeline            m_pipeline;
-  vk::PipelineLayout      m_pipelineLayout;
-  vk::DescriptorPool      m_descriptorPool;
-  vk::DescriptorSetLayout m_descriptorSetLayout;
-  vk::DescriptorSet       m_descriptorSet;
-  nvvk::Texture           m_imageIn;
-  nvvk::Texture           m_imageOut;
+
+  nvvk::Texture m_imageDenoised;
 
   nvvk::DescriptorSetBindings m_bindings;
 
   Tonemapper    m_tonemapper;
   DenoiserOptix m_denoiser;
   PathTracer    m_pathtracer;
-  RayPicker     m_rayPicker;
+  RayPickerKHR  m_picker;
 
   // GLTF scene model
   nvh::GltfScene m_gltfScene;
@@ -145,8 +136,14 @@ private:
 
   SceneUBO m_sceneUbo;
 
+  // UI
+  bool    m_denoiseApply{true};
+  bool    m_denoiseFirstFrame{false};
+  int32_t m_denoiseEveryNFrames{100};
 
-  vk::GeometryNV primitiveToGeometry(const nvh::GltfPrimMesh& prim);
+
+  nvvk::RaytracingBuilderKHR::BlasInput primitiveToGeometry(const nvh::GltfPrimMesh& prim);
+
   struct NodeMatrices
   {
     nvmath::mat4f world;    // local to world
@@ -155,4 +152,6 @@ private:
 
   // Timeline semaphores
   uint64_t m_fenceValue{0};
+
+  nvvk::DebugUtil m_debug;
 };

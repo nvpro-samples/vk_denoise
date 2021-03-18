@@ -1,0 +1,4 @@
+shaders/*.spv
+/build/*
+autogen/*
+spv/*

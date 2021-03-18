@@ -86,7 +86,7 @@ typedef unsigned int OptixVisibilityMask;
 /// Alignment requirement for OptixBuildInputInstanceArray::instances.
 #define OPTIX_INSTANCE_BYTE_ALIGNMENT 16ull
 
-/// Alignment requirement for OptixBuildInputCustomPrimitiveArray::aabbBuffers and OptixBuildInputInstanceArray::aabbs.
+/// Alignment requirement for OptixBuildInputCustomPrimitiveArray::aabbBuffers
 #define OPTIX_AABB_BUFFER_BYTE_ALIGNMENT 8ull
 
 /// Alignment requirement for OptixBuildInputTriangleArray::preTransform
@@ -121,6 +121,7 @@ typedef enum OptixResult
     OPTIX_ERROR_LAUNCH_FAILURE                  = 7050,
     OPTIX_ERROR_INVALID_DEVICE_CONTEXT          = 7051,
     OPTIX_ERROR_CUDA_NOT_INITIALIZED            = 7052,
+    OPTIX_ERROR_VALIDATION_FAILURE              = 7053,
     OPTIX_ERROR_INVALID_PTX                     = 7200,
     OPTIX_ERROR_INVALID_LAUNCH_PARAMETER        = 7201,
     OPTIX_ERROR_INVALID_PAYLOAD_ACCESS          = 7202,
@@ -139,6 +140,7 @@ typedef enum OptixResult
     OPTIX_ERROR_INVALID_ENTRY_FUNCTION_OPTIONS  = 7803,
     OPTIX_ERROR_LIBRARY_NOT_FOUND               = 7804,
     OPTIX_ERROR_ENTRY_SYMBOL_NOT_FOUND          = 7805,
+    OPTIX_ERROR_LIBRARY_UNLOAD_FAILURE          = 7806,
     OPTIX_ERROR_CUDA_ERROR                      = 7900,
     OPTIX_ERROR_INTERNAL_ERROR                  = 7990,
     OPTIX_ERROR_UNKNOWN                         = 7999,
@@ -209,6 +211,19 @@ typedef enum OptixDeviceProperty
 /// \see #optixDeviceContextSetLogCallback(), #OptixDeviceContextOptions
 typedef void ( *OptixLogCallback )( unsigned int level, const char* tag, const char* message, void* cbdata );
 
+/// Validation mode settings.
+///
+/// When enabled, certain device code utilities will be enabled to provide as good debug and
+/// error checking facilities as possible.
+///
+///
+/// \see #optixDeviceContextCreate()
+typedef enum OptixDeviceContextValidationMode
+{
+    OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_OFF = 0,
+    OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL = 0xFFFFFFFF
+} OptixDeviceContextValidationMode;
+
 /// Parameters used for #optixDeviceContextCreate()
 ///
 /// \see #optixDeviceContextCreate()
@@ -220,10 +235,12 @@ typedef struct OptixDeviceContextOptions
     void* logCallbackData;
     /// Maximum callback level to generate message for (see #OptixLogCallback)
     int logCallbackLevel;
+    /// Validation mode of context.
+    OptixDeviceContextValidationMode validationMode;
 } OptixDeviceContextOptions;
 
 /// Flags used by #OptixBuildInputTriangleArray::flags
-/// and #OptixBuildInputCurveArray::flags
+/// and #OptixBuildInputCurveArray::flag
 /// and #OptixBuildInputCustomPrimitiveArray::flags
 typedef enum OptixGeometryFlags
 {
@@ -527,57 +544,6 @@ typedef struct OptixBuildInputInstanceArray
 
     /// Number of elements in #OptixBuildInputInstanceArray::instances.
     unsigned int numInstances;
-
-    /// Optional AABBs.  In OptixAabb format.
-    ///
-    /// Required for traversables (OptixMatrixMotionTransform, OptixSRTMotionTransform,
-    /// OptixStaticTransform) and certain configurations of motion AS as instance.
-    /// Will be ignored for non-motion AS, since no AABBs are required. May be NULL in that case.
-    ///
-    /// The following table illustrates this (IAS is Instance Acceleration Structure)
-    /// instance type          |  traversable | motion AS | static AS
-    /// building a motion  IAS |   required   | required  | ignored
-    /// building a static  IAS |   required   | ignored   | ignored
-    ///
-    /// The AABBs must enclose the space spanned by the referenced handle of the instance.
-    /// I.e., the AABBs are in 'object space' and must NOT include the transformation of the
-    /// instance itself. If the instance's handle references a traversable the AABBs must
-    /// contain the transformation of the traversable.
-    ///
-    /// If OptixBuildInput::type is OPTIX_BUILD_INPUT_TYPE_INSTANCE_POINTERS the unused
-    /// pointers for unused aabbs may be set to NULL.
-    ///
-    /// If OptixBuildInput::type is OPTIX_BUILD_INPUT_TYPE_INSTANCES this pointer must be a
-    /// multiple of OPTIX_AABB_BUFFER_BYTE_ALIGNMENT.  If OptixBuildInput::type is
-    /// OPTIX_BUILD_INPUT_TYPE_INSTANCE_POINTERS the array elements must be a multiple of
-    /// OPTIX_AABB_BUFFER_BYTE_ALIGNMENT.
-    ///
-    /// Motion:
-    ///
-    /// In case of motion (OptixMotionOptions::numKeys>=2), OptixMotionOptions::numKeys
-    /// aabbs are expected per instance, e.g., for N instances and M motion keys:
-    /// aabb[inst0][t0], aabb[inst0][t1], ..., aabb[inst0][tM-1], ..., aabb[instN-1][t0],
-    /// aabb[instN-1][t1],..., aabb[instN-1][tM-1].
-    ///
-    /// If OptixBuildInput::type is OPTIX_BUILD_INPUT_TYPE_INSTANCES aabbs must be a device
-    /// pointer to an array of N * M * 6 floats.
-    ///
-    /// If OptixBuildInput::type is OPTIX_BUILD_INPUT_TYPE_INSTANCE_POINTERS aabbs must be
-    /// a device pointer to an array of N device pointers, each pointing to an array of M *
-    /// 6 floats in OptixAabb format.  Pointers may be NULL if the aabbs are not required.
-    /// Hence, if the second instance (inst1) points to a static GAS, aabbs are not
-    /// required for that instance.  While being ignored, aabbs must still be a device
-    /// pointer to an array of N elements.
-    ///
-    /// In case of OPTIX_BUILD_INPUT_TYPE_INSTANCES, the second element (with a size of M *
-    /// 6 floats) will be ignored.  In case of OPTIX_BUILD_INPUT_TYPE_INSTANCE_POINTERS,
-    /// the second element (with a size of pointer to M * 6 floats) can be NULL.
-    CUdeviceptr aabbs;
-
-    /// number of aabbs, in case of motion, this needs to match
-    /// numInstances multiplied with OptixMotionOptions::numKeys
-    unsigned int numAabbs;
-
 } OptixBuildInputInstanceArray;
 
 /// Enum to distinguish the different build input types.
@@ -1052,6 +1018,10 @@ typedef enum OptixDenoiserModelKind
 
     /// Use the built-in model appropriate for high dynamic range input.
     OPTIX_DENOISER_MODEL_KIND_HDR = 0x2323,
+
+    /// Use the built-in model appropriate for high dynamic range input and support for AOVs
+    OPTIX_DENOISER_MODEL_KIND_AOV = 0x2324,
+
 } OptixDenoiserModelKind;
 
 /// Options used by the denoiser
@@ -1066,11 +1036,29 @@ typedef struct OptixDenoiserOptions
 /// Various parameters used by the denoiser
 ///
 /// \see #optixDenoiserInvoke()
+/// \see #optixDenoiserComputeIntensity()
+/// \see #optixDenoiserComputeAverageColor()
 typedef struct OptixDenoiserParams
 {
+    /// if set to nonzero value, denoise alpha channel (if present) in first inputLayer image
     unsigned int denoiseAlpha;
+
+    /// average log intensity of input image (default null pointer). points to a single float.
+    /// with the default (null pointer) denoised results will not be optimal for very dark or
+    /// bright input images.
     CUdeviceptr  hdrIntensity;
+
+    /// blend factor.
+    /// If set to 0 the output is 100% of the denoised input. If set to 1, the output is 100% of
+    /// the unmodified input. Values between 0 and 1 will linearly interpolate between the denoised
+    /// and unmodified input.
     float        blendFactor;
+
+    /// this parameter is used when the OPTIX_DENOISER_MODEL_KIND_AOV model kind is set.
+    /// average log color of input image, separate for RGB channels (default null pointer).
+    /// points to three floats. with the default (null pointer) denoised results will not be
+    /// optimal.
+    CUdeviceptr  hdrAverageColor;
 } OptixDenoiserParams;
 
 /// Various sizes related to the denoiser.
@@ -1205,6 +1193,48 @@ typedef enum OptixCompileDebugLevel
     OPTIX_COMPILE_DEBUG_LEVEL_FULL     = 0x2352,
 } OptixCompileDebugLevel;
 
+
+/// Struct for specifying specializations for pipelineParams as specified in
+/// OptixPipelineCompileOptions::pipelineLaunchParamsVariableName.
+///
+/// The bound values are supposed to represent a constant value in the
+/// pipelineParams. OptiX will attempt to locate all loads from the pipelineParams and
+/// correlate them to the appropriate bound value, but there are cases where OptiX cannot
+/// safely or reliably do this. For example if the pointer to the pipelineParams is passed
+/// as an argument to a non-inline function or the offset of the load to the
+/// pipelineParams cannot be statically determined (e.g. accessed in a loop). No module
+/// should rely on the value being specialized in order to work correctly.  The values in
+/// the pipelineParams specified on optixLaunch should match the bound value. If
+/// validation mode is enabled on the context, OptiX will verify that the bound values
+/// specified matches the values in pipelineParams specified to optixLaunch.
+///
+/// These values are compiled in to the module as constants. Once the constants are
+/// inserted into the code, an optimization pass will be run that will attempt to
+/// propagate the consants and remove unreachable code.
+///
+/// If caching is enabled, changes in these values will result in newly compiled modules.
+///
+/// The pipelineParamOffset and sizeInBytes must be within the bounds of the
+/// pipelineParams variable. OPTIX_ERROR_INVALID_VALUE will be returned from
+/// optixModuleCreateFromPTX otherwise.
+///
+/// If more than one bound value overlaps or the size of a bound value is equal to 0, 
+/// an OPTIX_ERROR_INVALID_VALUE will be returned from optixModuleCreateFromPTX.
+///
+/// The same set of bound values do not need to be used for all modules in a pipeline, but
+/// overlapping values between modules must have the same value.
+/// OPTIX_ERROR_INVALID_VALUE will be returned from optixPipelineCreate otherwise.
+///
+/// \see #OptixModuleCompileOptions
+typedef struct OptixModuleCompileBoundValueEntry {
+    size_t pipelineParamOffsetInBytes;
+    size_t sizeInBytes;
+    const void* boundValuePtr;
+    const char* annotation; // optional string to display, set to 0 if unused.  If unused,
+                            // OptiX will report the annotation as "No annotation"
+} OptixModuleCompileBoundValueEntry;
+
+
 /// Compilation options for module
 ///
 /// \see #optixModuleCreateFromPTX()
@@ -1219,6 +1249,13 @@ typedef struct OptixModuleCompileOptions
 
     /// Generate debug information.
     OptixCompileDebugLevel debugLevel;
+
+    /// Ingored if numBoundValues is set to 0
+    const OptixModuleCompileBoundValueEntry* boundValues;
+
+    /// set to 0 if unused
+    unsigned int numBoundValues;
+
 } OptixModuleCompileOptions;
 
 /// Distinguishes different kinds of program groups.
@@ -1405,8 +1442,22 @@ typedef enum OptixExceptionCodes
     /// The invoked builtin IS does not match the current GAS
     OPTIX_EXCEPTION_CODE_BUILTIN_IS_MISMATCH = -11,
 
+    /// Tried to call a callable program using an SBT offset that is larger
+    /// than the number of passed in callable SBT records.
+    /// Exception details:
+    ///     optixGetExceptionInvalidSbtOffset()
+    OPTIX_EXCEPTION_CODE_CALLABLE_INVALID_SBT = -12,
+
+    /// Tried to call a direct callable using an SBT offset of a record that
+    /// was built from a program group that did not include a direct callable.
+    OPTIX_EXCEPTION_CODE_CALLABLE_NO_DC_SBT_RECORD = -13,
+
+    /// Tried to call a continuation callable using an SBT offset of a record
+    /// that was built from a program group that did not include a continuation callable.
+    OPTIX_EXCEPTION_CODE_CALLABLE_NO_CC_SBT_RECORD = -14,
+
     /// Tried to directly traverse a single gas while single gas traversable graphs are not enabled
-    //   (see OptixTraversableGraphFlags::OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS). 
+    ///   (see OptixTraversableGraphFlags::OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS).
     /// Exception details:
     ///     optixGetTransformListSize()
     ///     optixGetTransformListHandle()

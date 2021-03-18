@@ -1,18 +1,25 @@
 #version 460
-#extension GL_NV_ray_tracing : require
+#extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
 
 
+#include "../config.hpp"
 #include "raycommon.glsl"
 #include "sampling.glsl"
 
-layout(binding = 0, set = 0) uniform accelerationStructureNV topLevelAS;
-layout(binding = 1, rgba32f, set = 0) uniform image2D image[];
-layout(binding = 2, set = 0) uniform UBOscene
-{
-  Scene s;
-}
-ubo;
+// clang-format off
+layout(binding = B_BVH, set = 0) uniform accelerationStructureEXT topLevelAS;
+layout(binding = B_SCENE, set = 0) uniform UBOscene { Scene s; } ubo;
+#if USE_IMAGE
+# if USE_FLOAT
+layout(binding = B_IMAGES, rgba32f, set = 0) uniform image2D image[];
+# else
+layout(binding = B_IMAGES, rgba16f, set = 0) uniform image2D image[];
+# endif
+#else
+layout(binding = B_BUFFERS, set = 0) buffer _OutBuffers { vec4 pixel[]; } outBuffers[];
+#endif
+// clang-format on
 
 layout(push_constant) uniform Constants
 {
@@ -22,7 +29,7 @@ layout(push_constant) uniform Constants
 };
 
 
-layout(location = 0) rayPayloadNV PerRayData_pathtrace prd;
+layout(location = 0) rayPayloadEXT PerRayData_pathtrace prd;
 
 
 //////////////////////////// AO //////////////////////////////////////
@@ -37,8 +44,8 @@ void main()
   vec3 hitValue = vec3(0);
   for(int smpl = 0; smpl < samples; ++smpl)
   {
-    //uint seed = hash_value((gl_LaunchIDNV.y * gl_LaunchSizeNV.x + gl_LaunchIDNV.x) *samples+smpl)+ frame ;
-    uint  seed = tea(gl_LaunchIDNV.y * gl_LaunchSizeNV.x + gl_LaunchIDNV.x, frame * samples + smpl);
+    //uint seed = hash_value((gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x) *samples+smpl)+ frame ;
+    uint  seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, frame * samples + smpl);
     float r1   = rnd(seed);
     float r2   = rnd(seed);
 
@@ -46,8 +53,8 @@ void main()
     // to provide antialiasing.
     vec2 subpixel_jitter = (frame * samples + smpl) == 0 ? vec2(0.0f, 0.0f) : vec2(r1 - 0.5f, r2 - 0.5f);
 
-    const vec2 pixelCenter = vec2(gl_LaunchIDNV.xy) + vec2(0.5) + subpixel_jitter;
-    const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeNV.xy);
+    const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5) + subpixel_jitter;
+    const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
     vec2       d           = inUV * 2.0 - 1.0;
 
     mat4  viewInverse = inverse(ubo.s.model);
@@ -55,7 +62,7 @@ void main()
     vec4  origin      = viewInverse * vec4(0, 0, 0, 1);
     vec4  target      = projInverse * vec4(d.x, d.y, 1, 1);
     vec4  direction   = viewInverse * vec4(normalize(target.xyz), 0);
-    uint  rayFlags    = gl_RayFlagsOpaqueNV;
+    uint  rayFlags    = gl_RayFlagsOpaqueEXT;
     uint  cullMask    = 0xff;
     float tmin        = 0.001;
     float tmax        = 10000.0;
@@ -71,8 +78,8 @@ void main()
 
     for(;;)
     {
-      traceNV(topLevelAS, rayFlags, cullMask, 0 /*sbtRecordOffset*/, 0 /*sbtRecordStride*/, 0 /*missIndex*/, origin.xyz,
-              tmin, direction.xyz, tmax, 0 /*payload*/);
+      traceRayEXT(topLevelAS, rayFlags, cullMask, 0 /*sbtRecordOffset*/, 0 /*sbtRecordStride*/, 0 /*missIndex*/,
+                  origin.xyz, tmin, direction.xyz, tmax, 0 /*payload*/);
 
       prd.result += prd.radiance * prd.attenuation;
 
@@ -105,16 +112,28 @@ void main()
   hitValue = hitValue / samples;
 
   // Do accumulation
+  uint linearIdx = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
   if(frame > 0)
   {
-    float a         = 1.0f / float(frame);
-    vec3  old_color = imageLoad(image[0], ivec2(gl_LaunchIDNV.xy)).xyz;
-    imageStore(image[0], ivec2(gl_LaunchIDNV.xy), vec4(mix(old_color, hitValue, a), 1.f));
+    float a = 1.0f / float(frame);
+#if USE_IMAGE
+    vec3 old_color = imageLoad(image[0], ivec2(gl_LaunchIDEXT.xy)).xyz;
+    imageStore(image[0], ivec2(gl_LaunchIDEXT.xy), vec4(mix(old_color, hitValue, a), 1.f));
+#else
+    vec4 old_value                 = outBuffers[0].pixel[linearIdx];
+    outBuffers[0].pixel[linearIdx] = vec4(mix(old_color, hitValue, a), 1.f);
+#endif
   }
   else
   {
-    imageStore(image[0], ivec2(gl_LaunchIDNV.xy), vec4(hitValue, 1.f));
-    imageStore(image[1], ivec2(gl_LaunchIDNV.xy), vec4(res_albedo, 1.f));
-    imageStore(image[2], ivec2(gl_LaunchIDNV.xy), vec4(res_normal, 1.f));
+#if USE_IMAGE
+    imageStore(image[0], ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1.f));
+    imageStore(image[1], ivec2(gl_LaunchIDEXT.xy), vec4(res_albedo, 1.f));
+    imageStore(image[2], ivec2(gl_LaunchIDEXT.xy), vec4(res_normal, 1.f));
+#else
+    outBuffers[0].pixel[linearIdx] = vec4(hitValue, 1.f);
+    outBuffers[1].pixel[linearIdx] = vec4(res_albedo, 1.f);
+    outBuffers[2].pixel[linearIdx] = vec4(res_normal, 1.f);
+#endif
   }
 }

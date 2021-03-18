@@ -58,6 +58,7 @@ vec3 samplingHemisphere(inout uint seed, in vec3 x, in vec3 y, in vec3 z)
   return direction;
 }
 
+
 // Return the tangent and binormal from the incoming normal
 void createCoordinateSystem(in vec3 N, out vec3 Nt, out vec3 Nb)
 {
@@ -69,24 +70,12 @@ void createCoordinateSystem(in vec3 N, out vec3 Nt, out vec3 Nb)
 }
 
 
-void computeOrthonormalBasis(in vec3 normal, out vec3 tangent, out vec3 binormal)
+void computeOrthonormalBasis(in vec3 N, out vec3 Nt, out vec3 Nb)
 {
 
-  if(abs(normal.x) > abs(normal.z))
-  {
-    binormal.x = -normal.y;
-    binormal.y = normal.x;
-    binormal.z = 0;
-  }
-  else
-  {
-    binormal.x = 0;
-    binormal.y = -normal.z;
-    binormal.z = normal.y;
-  }
-
-  binormal = normalize(binormal);
-  tangent  = cross(binormal, normal);
+  Nt = normalize(((abs(N.z) > 0.99999f) ? vec3(-N.x * N.y, 1.0f - N.y * N.y, -N.y * N.z) :
+                                          vec3(-N.x * N.z, -N.y * N.z, 1.0f - N.z * N.z)));
+  Nb = cross(Nt, N);
 }
 
 void cosine_sample_hemisphere(const float u1, const float u2, out vec3 p)

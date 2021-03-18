@@ -32,12 +32,12 @@
 // Raytracing implementation for the Vulkan Interop (G-Buffers)
 //////////////////////////////////////////////////////////////////////////
 
-#include "vkalloc.hpp"
+#include "vulkan/vulkan.hpp"
 
 #include "nvh/fileoperations.hpp"
 #include "nvvk/commands_vk.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
-#include "nvvk/raytraceNV_vk.hpp"
+#include "nvvk/raytraceKHR_vk.hpp"
 #include "nvvk/shaders_vk.hpp"
 
 
@@ -55,27 +55,19 @@ public:
     int samples{5};  // samples per frame
   } m_pushC;
 
-  // Semaphores used for the denoiser
-  struct Semaphore
-  {
-    vk::Semaphore vkReady;
-    vk::Semaphore vkComplete;
-  } m_semaphores;
-
-
   // Default constructor
   PathTracer() = default;
 
   // Accessors
-  const Semaphore&                    semaphores() const { return m_semaphores; }
   const std::array<nvvk::Texture, 3>& outputImages() const { return m_outputImages; }
+  const std::array<nvvk::Buffer, 3>&  outputBuffers() const { return m_outputBuffers; }
 
-  nvvk::RaytracingBuilderNV m_rtBuilder;
+  nvvk::RaytracingBuilderKHR m_rtBuilder;
 
 
   void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex, nvvk::Allocator* allocator);
   void destroy();
-  void createOutputImage(vk::Extent2D size);
+  void createOutputs(vk::Extent2D size);
   void createDescriptorSet(const vk::DescriptorBufferInfo& sceneUbo,
                            const vk::DescriptorBufferInfo& primitiveInfo,
                            const vk::DescriptorBufferInfo& vertexBuffer,
@@ -87,27 +79,29 @@ public:
   void updateDescriptorSet();
   void createPipeline();
   void createShadingBindingTable();
-  void createSemaphores();
   void run(const vk::CommandBuffer& cmdBuf, int frame = 0);
   bool uiSetup();
 
 private:
-  std::vector<vk::RayTracingShaderGroupCreateInfoNV> m_groups;
+  std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_groups;
   //
-  vk::Device                                         m_device;
-  nvvk::DebugUtil                                    m_debug;
-  uint32_t                                           m_queueIndex;
-  nvvk::Allocator*                                   m_alloc{nullptr};
-  std::array<nvvk::Texture, 3>                       m_outputImages;
-  vk::Extent2D                                       m_outputSize;
-  nvvk::DescriptorSetBindings                        m_binding;
-  nvvk::Buffer                                       m_rtSBTBuffer;
-  vk::PhysicalDeviceRayTracingPropertiesNV           m_rtProperties;
-  nvvk::DescriptorSetBindings                        m_rtDescSetLayoutBind;
-  vk::DescriptorPool                                 m_rtDescPool;
-  vk::DescriptorSetLayout                            m_rtDescSetLayout;
-  vk::DescriptorSet                                  m_rtDescSet;
-  std::vector<vk::RayTracingShaderGroupCreateInfoNV> m_rtShaderGroups;
-  vk::PipelineLayout                                 m_rtPipelineLayout;
-  vk::Pipeline                                       m_rtPipeline;
+  vk::Device       m_device;
+  nvvk::DebugUtil  m_debug;
+  uint32_t         m_queueIndex;
+  nvvk::Allocator* m_alloc{nullptr};
+
+  std::array<nvvk::Texture, 3> m_outputImages;
+  std::array<nvvk::Buffer, 3>  m_outputBuffers;
+
+  vk::Extent2D                                        m_outputSize;
+  nvvk::DescriptorSetBindings                         m_binding;
+  nvvk::Buffer                                        m_rtSBTBuffer;
+  vk::PhysicalDeviceRayTracingPipelinePropertiesKHR   m_rtProperties;
+  nvvk::DescriptorSetBindings                         m_rtDescSetLayoutBind;
+  vk::DescriptorPool                                  m_rtDescPool;
+  vk::DescriptorSetLayout                             m_rtDescSetLayout;
+  vk::DescriptorSet                                   m_rtDescSet;
+  std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
+  vk::PipelineLayout                                  m_rtPipelineLayout;
+  vk::Pipeline                                        m_rtPipeline;
 };

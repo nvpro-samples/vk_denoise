@@ -191,8 +191,6 @@ inline OptixResult optixUtilDenoiserSplitImage(
 /// \param[in] denoiserStateSizeInBytes
 /// \param[in] inputLayers
 /// \param[in] numInputLayers
-/// \param[in] inputOffsetX
-/// \param[in] inputOffsetY
 /// \param[in] outputLayer
 /// \param[in] scratch
 /// \param[in] scratchSizeInBytes

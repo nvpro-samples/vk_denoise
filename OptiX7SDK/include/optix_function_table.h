@@ -26,7 +26,7 @@
 #define __optix_optix_function_table_h__
 
 /// The OptiX ABI version.
-#define OPTIX_ABI_VERSION 36
+#define OPTIX_ABI_VERSION 41
 
 #ifndef OPTIX_DEFINE_ABI_VERSION_ONLY
 
@@ -295,6 +295,13 @@ typedef struct OptixFunctionTable
                                                     CUdeviceptr         scratch,
                                                     size_t              scratchSizeInBytes );
 
+    /// See ::optixDenoiserComputeAverageColor().
+    OptixResult ( *optixDenoiserComputeAverageColor )( OptixDenoiser       handle,
+                                                       CUstream            stream,
+                                                       const OptixImage2D* inputImage,
+                                                       CUdeviceptr         outputAverageColor,
+                                                       CUdeviceptr         scratch,
+                                                       size_t              scratchSizeInBytes );
     //@ }
 
 } OptixFunctionTable;

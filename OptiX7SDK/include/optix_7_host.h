@@ -591,6 +591,10 @@ OptixResult optixDenoiserCreate( OptixDeviceContext context, const OptixDenoiser
 ///
 /// If the kind is OPTIX_DENOISER_MODEL_KIND_USER, then the data and sizeInByes must not be
 /// null and zero respectively.  For other kinds, these parameters must be zero.
+/// If the model kind is OPTIX_DENOISER_MODEL_KIND_AOV, HDR AOV images can be passed in the input layer
+/// to 'optixDenoiserInvoke' in addition to the beauty, rgb, albedo and normal images. Each AOV image
+/// is denoised separately. The denoised AOVs can be composited into a final denoised beauty image in
+/// a compositing step after denoising.
 ///
 /// \param[in] denoiser
 /// \param[in] kind
@@ -604,7 +608,8 @@ OptixResult optixDenoiserDestroy( OptixDenoiser denoiser );
 /// Computes the GPU memory resources required to execute the denoiser.
 ///
 /// Memory for state and scratch buffers must be allocated with the sizes in 'returnSizes' and scratch memory
-/// passed to optixDenoiserSetup, optixDenoiserInvoke and optixDenoiserComputeIntensity.
+/// passed to optixDenoiserSetup, optixDenoiserInvoke,
+/// optixDenoiserComputeIntensity and optixDenoiserComputeAverageColor.
 /// For tiled denoising an overlap area must be added to each tile on all sides which increases the amount of
 /// memory needed to denoise a tile. In case of tiling use withOverlapScratchSizeInBytes.
 /// If only full resolution images are denoised, withoutOverlapScratchSizeInBytes can be used which is always
@@ -648,8 +653,8 @@ OptixResult optixDenoiserSetup( OptixDenoiser denoiser,
                                 CUdeviceptr   scratch,
                                 size_t        scratchSizeInBytes );
 
-/// Invokes denoiser on a set of input data and produces one output
-/// image. State memory must be available during the execution of the
+/// Invokes denoiser on a set of input data and produces at least one output image.
+/// State memory must be available during the execution of the
 /// denoiser (or until optixDenoiserSetup is called with a new state memory pointer).
 /// Scratch memory passed is used only for the duration of this function.
 /// Scratch and state memory sizes must have a size greater than or equal to the sizes as returned by
@@ -660,6 +665,12 @@ OptixResult optixDenoiserSetup( OptixDenoiser denoiser,
 /// there is no overlap and 'inputOffsetX' and 'inputOffsetY' must be zero. When denoising a tile which is
 /// adjacent to one of the four sides of the entire image the corresponding offsets must also be zero since
 /// there is no overlap at the side adjacent to the image border.
+///
+/// If the model kind OPTIX_DENOISER_MODEL_KIND_AOV is selected this function will denoise all AOVs stored
+/// in the input layers. AOVs must be stored behind all model-specific input layers such as albedo, normal
+/// in 'inputLayers'. The beauty input image (first image in 'inputLayers') will be denoised and written
+/// to outputLayer. AOVs will be written subsequently, i.e. for each AOV there must be an OptixImage2D
+/// allocated in 'outputLayer'.
 ///
 /// \param[in] denoiser
 /// \param[in] stream
@@ -702,6 +713,8 @@ OptixResult optixDenoiserInvoke( OptixDenoiser              denoiser,
 /// This function needs scratch memory with a size of at least
 /// sizeof( int ) * ( 2 + inputImage::width * inputImage::height ). When denoising entire images (no tiling)
 /// the same scratch memory as passed to optixDenoiserInvoke could be used.
+//
+/// data type unsigned char is not supported for 'inputImage', it must be 3 or 4 component half/float.
 ///
 /// \param[in] denoiser
 /// \param[in] stream
@@ -715,6 +728,28 @@ OptixResult optixDenoiserComputeIntensity( OptixDenoiser       denoiser,
                                            CUdeviceptr         outputIntensity,
                                            CUdeviceptr         scratch,
                                            size_t              scratchSizeInBytes );
+
+/// Compute average logarithmic for each of the first three channels for the given image.
+/// When denoising tiles the intensity of the entire image should be computed, i.e. not per tile to get
+/// consistent results.
+/// This function needs scratch memory with a size of at least
+/// sizeof( int ) * ( 3 + 3 * inputImage::width * inputImage::height ). When denoising entire images (no tiling)
+/// the same scratch memory as passed to optixDenoiserInvoke could be used.
+///
+/// data type unsigned char is not supported for 'inputImage', it must be 3 or 4 component half/float.
+///
+/// \param[in] denoiser
+/// \param[in] stream
+/// \param[in] inputImage
+/// \param[out] outputAverageColor three floats
+/// \param[in] scratch
+/// \param[in] scratchSizeInBytes
+OptixResult optixDenoiserComputeAverageColor( OptixDenoiser       denoiser,
+                                              CUstream            stream,
+                                              const OptixImage2D* inputImage,
+                                              CUdeviceptr         outputAverageColor,
+                                              CUdeviceptr         scratch,
+                                              size_t              scratchSizeInBytes );
 
 //@}
 
