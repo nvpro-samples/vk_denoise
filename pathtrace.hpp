@@ -36,6 +36,7 @@
 
 #include "nvh/fileoperations.hpp"
 #include "nvvk/commands_vk.hpp"
+#include "nvvk/debug_util_vk.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
 #include "nvvk/raytraceKHR_vk.hpp"
 #include "nvvk/shaders_vk.hpp"
@@ -59,8 +60,7 @@ public:
   PathTracer() = default;
 
   // Accessors
-  const std::array<nvvk::Texture, 3>& outputImages() const { return m_outputImages; }
-  const std::array<nvvk::Buffer, 3>&  outputBuffers() const { return m_outputBuffers; }
+  const std::vector<nvvk::Texture>& outputImages() const { return m_outputImages; }
 
   nvvk::RaytracingBuilderKHR m_rtBuilder;
 
@@ -90,8 +90,7 @@ private:
   uint32_t         m_queueIndex;
   nvvk::Allocator* m_alloc{nullptr};
 
-  std::array<nvvk::Texture, 3> m_outputImages;
-  std::array<nvvk::Buffer, 3>  m_outputBuffers;
+  std::vector<nvvk::Texture> m_outputImages;  // RGB, Albedo, Normal
 
   vk::Extent2D                                        m_outputSize;
   nvvk::DescriptorSetBindings                         m_binding;

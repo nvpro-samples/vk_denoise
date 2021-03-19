@@ -249,11 +249,11 @@ void DenoiserOptix::bufferToImage(const vk::CommandBuffer& cmdBuf, nvvk::Texture
 {
   LABEL_SCOPE_VK(cmdBuf);
   const vk::Buffer& pixelBufferOut = m_pixelBufferOut.bufVk.buffer;
+  //const vk::Buffer& pixelBufferOut = m_pixelBufferIn[0].bufVk.buffer;
 
   // Transit the depth buffer image in eTransferSrcOptimal
   vk::ImageSubresourceRange subresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
-  nvvk::cmdBarrierImageLayout(cmdBuf, imgOut->image, vk::ImageLayout::eShaderReadOnlyOptimal,
-                              vk::ImageLayout::eTransferDstOptimal, subresourceRange);
+  nvvk::cmdBarrierImageLayout(cmdBuf, imgOut->image, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferDstOptimal, subresourceRange);
 
   // Copy the pixel under the cursor
   vk::BufferImageCopy copyRegion;
@@ -263,8 +263,7 @@ void DenoiserOptix::bufferToImage(const vk::CommandBuffer& cmdBuf, nvvk::Texture
   cmdBuf.copyBufferToImage(pixelBufferOut, imgOut->image, vk::ImageLayout::eTransferDstOptimal, {copyRegion});
 
   // Put back the depth buffer as  it was
-  nvvk::cmdBarrierImageLayout(cmdBuf, imgOut->image, vk::ImageLayout::eTransferDstOptimal,
-                              vk::ImageLayout::eShaderReadOnlyOptimal, subresourceRange);
+  nvvk::cmdBarrierImageLayout(cmdBuf, imgOut->image, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral, subresourceRange);
 }
 
 
@@ -327,7 +326,8 @@ void DenoiserOptix::allocateBuffers(const vk::Extent2D& imgSize)
   vk::DeviceSize bufferSize = static_cast<unsigned long long>(m_imageSize.width) * m_imageSize.height * 4 * sizeof(float);
 
   // Using direct method
-  vk::BufferUsageFlags usage{vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst};
+  vk::BufferUsageFlags usage{vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst
+                             | vk::BufferUsageFlagBits::eTransferSrc};
   m_pixelBufferIn[0].bufVk = m_allocEx.createBuffer(bufferSize, usage, vk::MemoryPropertyFlagBits::eDeviceLocal);
   createBufferCuda(m_pixelBufferIn[0]);  // Exporting the buffer to Cuda handle and pointers
   NAME_VK(m_pixelBufferIn[0].bufVk.buffer);

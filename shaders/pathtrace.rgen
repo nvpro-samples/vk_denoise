@@ -10,15 +10,11 @@
 // clang-format off
 layout(binding = B_BVH, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = B_SCENE, set = 0) uniform UBOscene { Scene s; } ubo;
-#if USE_IMAGE
 # if USE_FLOAT
 layout(binding = B_IMAGES, rgba32f, set = 0) uniform image2D image[];
 # else
 layout(binding = B_IMAGES, rgba16f, set = 0) uniform image2D image[];
 # endif
-#else
-layout(binding = B_BUFFERS, set = 0) buffer _OutBuffers { vec4 pixel[]; } outBuffers[];
-#endif
 // clang-format on
 
 layout(push_constant) uniform Constants
@@ -115,25 +111,14 @@ void main()
   uint linearIdx = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
   if(frame > 0)
   {
-    float a = 1.0f / float(frame);
-#if USE_IMAGE
-    vec3 old_color = imageLoad(image[0], ivec2(gl_LaunchIDEXT.xy)).xyz;
+    float a         = 1.0f / float(frame);
+    vec3  old_color = imageLoad(image[0], ivec2(gl_LaunchIDEXT.xy)).xyz;
     imageStore(image[0], ivec2(gl_LaunchIDEXT.xy), vec4(mix(old_color, hitValue, a), 1.f));
-#else
-    vec4 old_value                 = outBuffers[0].pixel[linearIdx];
-    outBuffers[0].pixel[linearIdx] = vec4(mix(old_color, hitValue, a), 1.f);
-#endif
   }
   else
   {
-#if USE_IMAGE
     imageStore(image[0], ivec2(gl_LaunchIDEXT.xy), vec4(hitValue, 1.f));
     imageStore(image[1], ivec2(gl_LaunchIDEXT.xy), vec4(res_albedo, 1.f));
     imageStore(image[2], ivec2(gl_LaunchIDEXT.xy), vec4(res_normal, 1.f));
-#else
-    outBuffers[0].pixel[linearIdx] = vec4(hitValue, 1.f);
-    outBuffers[1].pixel[linearIdx] = vec4(res_albedo, 1.f);
-    outBuffers[2].pixel[linearIdx] = vec4(res_normal, 1.f);
-#endif
   }
 }

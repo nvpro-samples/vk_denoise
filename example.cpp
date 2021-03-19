@@ -195,17 +195,19 @@ void DenoiseExample::createDenoiseOutImage()
     m_alloc.destroy(m_imageDenoised);
 
   nvvk::ScopeCommandBuffer cmdBuf(m_device, m_graphicsQueueIndex);
+  auto usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferSrc;
 
 #if USE_FLOAT
-  vk::ImageCreateInfo info = nvvk::makeImage2DCreateInfo(m_size, vk::Format::eR32G32B32A32Sfloat);
+  vk::ImageCreateInfo info = nvvk::makeImage2DCreateInfo(m_size, vk::Format::eR32G32B32A32Sfloat, usage);
 #else
-  vk::ImageCreateInfo info = nvvk::makeImage2DCreateInfo(m_size, vk::Format::eR16G16B16A16Sfloat);
+  vk::ImageCreateInfo info = nvvk::makeImage2DCreateInfo(m_size, vk::Format::eR16G16B16A16Sfloat, usage);
 #endif
 
-  nvvk::Image             image  = m_alloc.createImage(info);
-  vk::ImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, info);
-  m_imageDenoised                = m_alloc.createTexture(image, ivInfo, vk::SamplerCreateInfo());
-  nvvk::cmdBarrierImageLayout(cmdBuf, m_imageDenoised.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eShaderReadOnlyOptimal);
+  nvvk::Image             image          = m_alloc.createImage(info);
+  vk::ImageViewCreateInfo ivInfo         = nvvk::makeImageViewCreateInfo(image.image, info);
+  m_imageDenoised                        = m_alloc.createTexture(image, ivInfo, vk::SamplerCreateInfo());
+  m_imageDenoised.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  nvvk::cmdBarrierImageLayout(cmdBuf, m_imageDenoised.image, vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral);
 
   NAME_VK(m_imageDenoised.image);
   NAME_VK(m_imageDenoised.descriptor.imageView);
@@ -270,6 +272,8 @@ void DenoiseExample::run()
   bool needToRender  = m_frameNumber < m_maxFrames;
   bool needToDenoise = needToRender && applyDenoise && (m_frameNumber % m_denoiseEveryNFrames == 0);
 
+  m_tonemapper.setInput(applyDenoise ? m_imageDenoised.descriptor : m_pathtracer.outputImages()[0].descriptor);
+
   // Two command buffer in a frame, before and after denoiser
   vk::CommandBuffer& cmdBuf1 = m_commandBuffers[getCurFrame() * 2 + 0];
   vk::CommandBuffer& cmdBuf2 = m_commandBuffers[getCurFrame() * 2 + 1];
@@ -286,20 +290,14 @@ void DenoiseExample::run()
 
       if(needToDenoise)
       {
-#if USE_IMAGE
-        m_denoiser.imageToBuffer(cmdBuf1, std::vector<nvvk::Texture>(m_pathtracer.outputImages().begin(),
-                                                                     m_pathtracer.outputImages().end()));
-#else
-        m_denoiser.bufferToBuffer(cmdBuf1, std::vector<nvvk::Buffer>(m_pathtracer.outputBuffers().begin(),
-                                                                     m_pathtracer.outputBuffers().end()));
-#endif
+        m_denoiser.imageToBuffer(cmdBuf1, m_pathtracer.outputImages());
       }
     }
 
     m_debug.endLabel(cmdBuf1);
-    cmdBuf1.end();
 
     // Submit first part - wait for fence and signal timeline semaphore (denoiser)
+    cmdBuf1.end();
     submitWithTLSemaphore(cmdBuf1);
   }
 
@@ -322,16 +320,15 @@ void DenoiseExample::run()
 
 
     // Apply tonemapper - use the denoiser output or direct ray tracer output
-    m_tonemapper.setInput(applyDenoise ? m_imageDenoised.descriptor : m_pathtracer.outputImages()[0].descriptor);
-    m_tonemapper.run(cmdBuf2);
+    m_tonemapper.run(cmdBuf2, m_size);
 
 
     // Blit tonemap image to framebuffer
     {
-      vk::Image inImage  = m_tonemapper.getOutput().image;
+      vk::Image inImage  = m_tonemapper.getOutImage().image;
       vk::Image outImage = m_swapChain.getActiveImage();
 
-      nvvk::cmdBarrierImageLayout(cmdBuf2, inImage, vk::ImageLayout::eShaderReadOnlyOptimal, vk::ImageLayout::eTransferSrcOptimal);
+      nvvk::cmdBarrierImageLayout(cmdBuf2, inImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferSrcOptimal);
       nvvk::cmdBarrierImageLayout(cmdBuf2, outImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
 
       vk::ImageBlit region;
@@ -342,7 +339,7 @@ void DenoiseExample::run()
 
       cmdBuf2.blitImage(inImage, vk::ImageLayout::eTransferSrcOptimal, outImage, vk::ImageLayout::eTransferDstOptimal,
                         {region}, vk::Filter::eLinear);
-      nvvk::cmdBarrierImageLayout(cmdBuf2, inImage, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+      nvvk::cmdBarrierImageLayout(cmdBuf2, inImage, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral);
       nvvk::cmdBarrierImageLayout(cmdBuf2, outImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral);
     }
 
@@ -507,7 +504,9 @@ void DenoiseExample::destroy()
   m_device.waitIdle();
 
 
+  //m_tonemapper.destroy();
   m_tonemapper.destroy();
+
   m_denoiser.destroy();
   m_pathtracer.destroy();
   m_picker.destroy();
@@ -601,7 +600,7 @@ void DenoiseExample::onResize(int /*w*/, int /*h*/)
   m_pathtracer.createOutputs(m_size);
   m_pathtracer.updateDescriptorSet();
   createDenoiseOutImage();
-  m_tonemapper.updateRenderTarget(m_size);
+  m_tonemapper.createOutImage(m_size);
   m_denoiser.allocateBuffers(m_size);
   resetFrame();
 }
@@ -609,22 +608,33 @@ void DenoiseExample::onResize(int /*w*/, int /*h*/)
 
 void DenoiseExample::renderGui()
 {
-  bool modified = false;
-
-
-  using Gui = ImGuiH::Control;
+  ImGuiH::Control::style.ctrlPerc = 0.55f;
   ImGuiH::Panel::Begin(ImGuiH::Panel::Side::Right);
   {
+    using Gui     = ImGuiH::Control;
+    bool modified = false;
+
+    if(ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+      modified |= ImGuiH::CameraWidget();
+
+    if(ImGui::CollapsingHeader("Denoiser", ImGuiTreeNodeFlags_DefaultOpen))
+      uiDenoiser();
+
+    if(ImGui::CollapsingHeader("Ray Tracer", ImGuiTreeNodeFlags_DefaultOpen))
+      modified |= m_pathtracer.uiSetup();
+
+    if(ImGui::CollapsingHeader("Tonemapper", ImGuiTreeNodeFlags_CollapsingHeader))
+      m_tonemapper.uiSetup();
+
+    if(ImGui::CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen))
+      modified |= uiLights(modified);
+
+
+    ImGui::Separator();
     ImGui::Text("%s", &m_physicalDevice.getProperties().deviceName[0]);
     Gui::Info("Frame number", "", std::to_string(m_frameNumber).c_str());
     Gui::Info("Samples", "", std::to_string(m_frameNumber * m_pathtracer.m_pushC.samples).c_str());
     Gui::Drag("Max Frames", "", &m_maxFrames, nullptr, Gui::Flags::Normal, 1);
-    //--
-    m_tonemapper.uiSetup();
-    modified |= m_pathtracer.uiSetup();
-    uiDenoiser();
-    modified |= uiLights(modified);
-    ImGui::Separator();
     Gui::Info("", "", "Press F10 to toggle panel", Gui::Flags::Disabled);
 
     if(modified)
@@ -640,13 +650,10 @@ void DenoiseExample::renderGui()
 bool DenoiseExample::uiDenoiser()
 {
   bool modified = false;
-  if(ImGui::CollapsingHeader("Denoiser", ImGuiTreeNodeFlags_DefaultOpen))
-  {
-    modified |= ImGuiH::Control::Checkbox("Denoise", "", (bool*)&m_denoiseApply);
-    modified |= ImGuiH::Control::Checkbox("First Frame", "Apply the denoiser on the first frame ", &m_denoiseFirstFrame);
-    modified |= ImGuiH::Control::Slider("N-frames", "Apply the denoiser on every n-frames", &m_denoiseEveryNFrames,
-                                        nullptr, ImGuiH::Control::Flags::Normal, 1, 500);
-  }
+  modified |= ImGuiH::Control::Checkbox("Denoise", "", (bool*)&m_denoiseApply);
+  modified |= ImGuiH::Control::Checkbox("First Frame", "Apply the denoiser on the first frame ", &m_denoiseFirstFrame);
+  modified |= ImGuiH::Control::Slider("N-frames", "Apply the denoiser on every n-frames", &m_denoiseEveryNFrames,
+                                      nullptr, ImGuiH::Control::Flags::Normal, 1, 500);
   return modified;
 }
 
@@ -656,22 +663,19 @@ bool DenoiseExample::uiDenoiser()
 //
 bool DenoiseExample::uiLights(bool modified)
 {
-  if(ImGui::CollapsingHeader("Extra Lights"))
+  for(int nl = 0; nl < m_sceneUbo.nbLights; nl++)
   {
-    for(int nl = 0; nl < m_sceneUbo.nbLights; nl++)
+    ImGui::PushID(nl);
+    if(ImGui::TreeNode("##light", "Light %d", nl))
     {
-      ImGui::PushID(nl);
-      if(ImGui::TreeNode("##light", "Light %d", nl))
-      {
-        modified |= ImGuiH::Control::Drag("Position", "", (vec3*)&m_sceneUbo.lights[nl].position);
-        modified |= ImGuiH::Control::Drag("Intensity", "", &m_sceneUbo.lights[nl].color.w, nullptr,
-                                          ImGuiH::Control::Flags::Normal, 0.f, std::numeric_limits<float>::max(), 10);
-        modified |= ImGuiH::Control::Color("Color", "", (float*)&m_sceneUbo.lights[nl].color.x);
-        ImGui::Separator();
-        ImGui::TreePop();
-      }
-      ImGui::PopID();
+      modified |= ImGuiH::Control::Drag("Position", "", (vec3*)&m_sceneUbo.lights[nl].position);
+      modified |= ImGuiH::Control::Drag("Intensity", "", &m_sceneUbo.lights[nl].color.w, nullptr,
+                                        ImGuiH::Control::Flags::Normal, 0.f, std::numeric_limits<float>::max(), 10);
+      modified |= ImGuiH::Control::Color("Color", "", (float*)&m_sceneUbo.lights[nl].color.x);
+      ImGui::Separator();
+      ImGui::TreePop();
     }
+    ImGui::PopID();
   }
   return modified;
 }

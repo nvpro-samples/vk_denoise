@@ -64,8 +64,6 @@ void PathTracer::destroy()
 {
   for(auto& i : m_outputImages)
     m_alloc->destroy(i);
-  for(auto& b : m_outputBuffers)
-    m_alloc->destroy(b);
 
   m_rtBuilder.destroy();
   m_device.destroy(m_rtDescPool);
@@ -83,13 +81,12 @@ void PathTracer::createOutputs(vk::Extent2D size)
 {
   for(auto& i : m_outputImages)
     m_alloc->destroy(i);
-  for(auto& b : m_outputBuffers)
-    m_alloc->destroy(b);
   m_outputSize = size;
 
   vk::DeviceSize imgSize = static_cast<unsigned long long>(size.width) * size.height * 4 * sizeof(float);
+  m_outputImages.resize(3);  // RGB, Albedo, Normal
 
-#if USE_IMAGE
+
 #if USE_FLOAT
   vk::Format format = vk::Format::eR32G32B32A32Sfloat;
 #else
@@ -112,14 +109,6 @@ void PathTracer::createOutputs(vk::Extent2D size)
       NAME_IDX_VK(m_outputImages[i].descriptor.imageView, i);
     }
   }
-#else
-  for(size_t i = 0; i < 3; i++)
-  {
-    m_outputBuffers[i] = m_alloc->createBuffer(imgSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferSrc,
-                                               vk::MemoryPropertyFlagBits::eDeviceLocal);
-    NAME_IDX_VK(m_outputBuffers[i].buffer, i);
-  }
-#endif
 
   m_alloc->finalizeAndReleaseStaging();
 }
@@ -143,12 +132,7 @@ void PathTracer::createDescriptorSet(const vk::DescriptorBufferInfo& sceneUbo,
   m_binding.addBinding(vkDSLB(B_INDEX, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));      // Indices
   m_binding.addBinding(vkDSLB(B_NORMAL, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));     // Normals
   m_binding.addBinding(vkDSLB(B_MATERIAL, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));   // material
-
-#if USE_IMAGE
-  m_binding.addBinding(vkDSLB(B_IMAGES, vkDT::eStorageImage, 3, vkSS::eRaygenKHR));  // Output images (3)
-#else
-  m_binding.addBinding(vkDSLB(B_BUFFERS, vkDT::eStorageBuffer, 3, vkSS::eRaygenKHR));  // images
-#endif
+  m_binding.addBinding(vkDSLB(B_IMAGES, vkDT::eStorageImage, 3, vkSS::eRaygenKHR));          // Output images (3)
 
   CREATE_NAMED_VK(m_rtDescPool, m_binding.createPool(m_device));
   CREATE_NAMED_VK(m_rtDescSetLayout, m_binding.createLayout(m_device));
@@ -159,21 +143,12 @@ void PathTracer::createDescriptorSet(const vk::DescriptorBufferInfo& sceneUbo,
 
   std::vector<vk::WriteDescriptorSet> writes;
 
-#if USE_IMAGE
   std::vector<vk::DescriptorImageInfo> descImgInfo;
   for(auto& i : m_outputImages)
   {
     descImgInfo.emplace_back(i.descriptor);
   }
   writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, B_IMAGES, descImgInfo.data()));
-#else
-  std::vector<vk::DescriptorBufferInfo> descBufInfo;
-  for(auto& b : m_outputBuffers)
-  {
-    descBufInfo.push_back({b.buffer, 0, VK_WHOLE_SIZE});
-  }
-  writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, B_BUFFERS descBufInfo.data()));
-#endif
 
   writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_BVH, &descAsInfo));
   writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_SCENE, &sceneUbo));
@@ -194,21 +169,12 @@ void PathTracer::updateDescriptorSet()
 {
   std::vector<vk::WriteDescriptorSet> writes;
 
-#if USE_IMAGE
   std::vector<vk::DescriptorImageInfo> descImgInfo;
   for(auto& i : m_outputImages)
   {
     descImgInfo.emplace_back(i.descriptor);
   }
   writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, B_IMAGES, descImgInfo.data()));
-#else
-  std::vector<vk::DescriptorBufferInfo> descBufInfo;
-  for(auto& b : m_outputBuffers)
-  {
-    descBufInfo.push_back({b.buffer, 0, VK_WHOLE_SIZE});
-  }
-  writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, B_BUFFERS, descBufInfo.data()));
-#endif
 
   m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -344,11 +310,7 @@ void PathTracer::run(const vk::CommandBuffer& cmdBuf, int frame /*= 0*/)
 bool PathTracer::uiSetup()
 {
   bool modified = false;
-  if(ImGui::CollapsingHeader("Raytracing"))
-  {
-    modified |= ImGuiH::Control::Slider("Max Ray Depth", "", &m_pushC.depth, nullptr, ImGuiH::Control::Flags::Normal, 1, 10);
-    modified |=
-        ImGuiH::Control::Slider("Samples Per Frame", "", &m_pushC.samples, nullptr, ImGuiH::Control::Flags::Normal, 1, 100);
-  }
+  modified |= ImGuiH::Control::Slider("Max Ray Depth", "", &m_pushC.depth, nullptr, ImGuiH::Control::Flags::Normal, 1, 10);
+  modified |= ImGuiH::Control::Slider("Samples Per Frame", "", &m_pushC.samples, nullptr, ImGuiH::Control::Flags::Normal, 1, 100);
   return modified;
 }
