@@ -13,6 +13,10 @@ Only the buffers, which are the linear-image copy of the default tiled image, ar
 
 The denoiser is using Cuda and rendering is done with Vulkan, if we would simply add all Vulkan commands to a single command buffer, we would not be synchronized and the image to display will be sometime denoised, sometime not. We could add a hard synchronization on the CPU, making sure the ray traced is finished, denoised the image, wait for it, then display. But this would be losing a lot of the GPU cycle. Instead, we are adding a Vulkan timeline semaphore to signal when the ray traced image is rendered and transferred the buffer and a Cuda wait semaphore to hold the execution of the denoiser on the GPU. We add the inverse process at the end of the denoiser with a Cuda semaphore signaling the image is denoised and on Vulkan a wait semaphore to copy the buffer back to an image, tonemap it and display. 
 
+
+ ![vk_denoise2](doc/GPU_Trace.png)
+
+
 ### Nsight System 
 The following image was done using [Nsight System](https://developer.nvidia.com/nsight-systems), which is at the time of writing those lines, the only tool which can inspect both Vulkan ray tracing and Cuda simultaneously. In the following image; the rendering was set to start denoising the image after 10 iterations. It is quicker to render and not denoising each frame. Also, sometimes the denoiser is not that great with the first few frames, as the image is too noisy to reconstruct it correctly. After 10 frames, the denoiser will be apply on frame #11. Because the frame #11 is really long to do, the in-flight frames will be displayed before it even finishes. 
 
