@@ -26,24 +26,24 @@ endif()
 
 
 #####################################################################################
-# look for shared_sources 1) as a sub-folder 2) at some other locations
+# look for nvpro_core 1) as a sub-folder 2) at some other locations
 # this cannot be put anywhere else since we still didn't find setup.cmake yet
 #
 if(NOT BASE_DIRECTORY)
 
   find_path(BASE_DIRECTORY
-    NAMES shared_sources/cmake/setup.cmake
+    NAMES nvpro_core/cmake/setup.cmake
     PATHS ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/.. ${CMAKE_CURRENT_SOURCE_DIR}/../.. 
     REQUIRED
-    DOC "Directory containing shared_sources"
+    DOC "Directory containing nvpro_core"
     )
 endif()
 
-if(EXISTS ${BASE_DIRECTORY}/shared_sources/cmake/setup.cmake)
-  include(${BASE_DIRECTORY}/shared_sources/cmake/setup.cmake)
-  include(${BASE_DIRECTORY}/shared_sources/cmake/utilities.cmake)
+if(EXISTS ${BASE_DIRECTORY}/nvpro_core/cmake/setup.cmake)
+  include(${BASE_DIRECTORY}/nvpro_core/cmake/setup.cmake)
+  include(${BASE_DIRECTORY}/nvpro_core/cmake/utilities.cmake)
 else()
-  message(FATAL_ERROR "could not find base directory, please set BASE_DIRECTORY to folder containing shared_sources")
+  message(FATAL_ERROR "could not find base directory, please set BASE_DIRECTORY to folder containing nvpro_core")
 endif()
 
 _add_project_definitions(${PROJNAME})
@@ -57,19 +57,13 @@ set(CMAKE_CXX_STANDARD 17)
 
 _add_project_definitions(${PROJNAME})
 
-#--------------------------------------------------------------------------------------------------
-# Memory Allocation
-#   Forcing to use our memory allocator DMA (similar to Vulkan Memory Allocator (VMA))
-target_compile_definitions(${PROJNAME} PUBLIC NVVK_ALLOC_DMA)
-
-
 #####################################################################################
 # additions from packages needed for this sample
 _add_package_VulkanSDK()
 _add_package_IMGUI()
 _add_package_Cuda()
 # process the rest of some cmake code that needs to be done *after* the packages add
-_add_shared_sources_lib()
+_add_nvpro_core_lib()
 
 #####################################################################################
 # Source files for this project
@@ -115,7 +109,7 @@ source_group("Shader Headers" FILES ${GLSL_HEADERS})
 #####################################################################################
 # Linkage
 #
-target_link_libraries(${PROJNAME} ${PLATFORM_LIBRARIES} shared_sources)
+target_link_libraries(${PROJNAME} ${PLATFORM_LIBRARIES} nvpro_core)
 
 foreach(DEBUGLIB ${LIBRARIES_DEBUG})
   target_link_libraries(${PROJNAME} debug ${DEBUGLIB})

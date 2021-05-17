@@ -17,12 +17,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
  
-#version 460
-#extension GL_EXT_ray_tracing : require
+// Visual Studio warnings
+#ifdef _MSC_VER
+#pragma warning(disable : 4996)  // 'This function or variable may be unsafe': strcpy, strdup, sprintf, vsnprintf, sscanf, fopen
+#endif
 
-layout(location = 2) rayPayloadInEXT bool isShadowed;
-
-void main()
-{
-  isShadowed = false;
-}
+#define TINYGLTF_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "tiny_gltf.h"
