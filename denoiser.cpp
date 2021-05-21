@@ -400,14 +400,14 @@ void DenoiserOptix::createBufferCuda(BufferCuda& buf)
 }
 
 //--------------------------------------------------------------------------------------------------
-// Creating the semaphores of syncing with OpenGL
+// Creating the timeline semaphores for syncing with CUDA
 //
 void DenoiserOptix::createSemaphore()
 {
 #ifdef WIN32
   auto handleType = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueWin32;
 #else
-  auto handleType                = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
+  auto handleType = vk::ExternalSemaphoreHandleTypeFlagBits::eOpaqueFd;
 #endif
 
   vk::SemaphoreTypeCreateInfo timelineCreateInfo;
@@ -425,7 +425,7 @@ void DenoiserOptix::createSemaphore()
 #ifdef WIN32
   m_semaphore.handle = m_device.getSemaphoreWin32HandleKHR({m_semaphore.vk, handleType});
 #else
-  m_semaphore.handle             = m_device.getSemaphoreFdKHR({m_semaphore.vk, handleType});
+  m_semaphore.handle = m_device.getSemaphoreFdKHR({m_semaphore.vk, handleType});
 #endif
 
 
@@ -433,10 +433,10 @@ void DenoiserOptix::createSemaphore()
   std::memset(&externalSemaphoreHandleDesc, 0, sizeof(externalSemaphoreHandleDesc));
   externalSemaphoreHandleDesc.flags = 0;
 #ifdef WIN32
-  externalSemaphoreHandleDesc.type  = cudaExternalSemaphoreHandleTypeD3D12Fence;
+  externalSemaphoreHandleDesc.type  = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32;
   externalSemaphoreHandleDesc.handle.win32.handle = (void*)m_semaphore.handle;
 #else
-  externalSemaphoreHandleDesc.type  = cudaExternalSemaphoreHandleTypeOpaqueFd;
+  externalSemaphoreHandleDesc.type  = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
   externalSemaphoreHandleDesc.handle.fd = m_semaphore.handle;
 #endif
 

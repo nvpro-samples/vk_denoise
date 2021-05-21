@@ -153,7 +153,7 @@ int main(int argc, char** argv)
 #endif
 
     // Printing which GPU we are using
-    //LOGI("Using %s \n", &vkctx.m_physicalDevice.getProperties().deviceName[0]);
+    //LOGI("Using %s \n", &vkctx.m_physicalDevice.getProperties().deviceName.data());
 
     example.setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice, vkctx.m_queueGCT.familyIndex);
     example.createSwapchain(surface, SAMPLE_SIZE_WIDTH, SAMPLE_SIZE_HEIGHT);
