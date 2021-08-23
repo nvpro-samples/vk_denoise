@@ -248,7 +248,8 @@ void PathTracer::createShadingBindingTable()
   // Fetch all the shader handles used in the pipeline, so that they can be written in the SBT
   uint32_t             sbtSize = groupCount * alignSize;
   std::vector<uint8_t> shaderHandleStorage(sbtSize);
-  m_device.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
+  auto result = m_device.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
+  assert(result == vk::Result::eSuccess);
 
   m_rtSBTBuffer =
       m_alloc->createBuffer(sbtSize, vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress,
