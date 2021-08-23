@@ -18,7 +18,6 @@
  */
 
 
-
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <sstream>
@@ -101,7 +100,7 @@ void DenoiseExample::initialize(const std::string& filename)
   // Raytracing
   {
     std::vector<nvvk::RaytracingBuilderKHR::BlasInput> allBlas;
-    std::vector<nvvk::RaytracingBuilderKHR::Instance>  tlas;
+    std::vector<VkAccelerationStructureInstanceKHR>    tlas;
     m_primitiveOffsets.reserve(m_gltfScene.m_nodes.size());
 
     // BLAS - Storing each primitive in a geometry
@@ -115,9 +114,10 @@ void DenoiseExample::initialize(const std::string& filename)
     // TLAS - Top level for each valid mesh
     for(auto& node : m_gltfScene.m_nodes)
     {
-      nvvk::RaytracingBuilderKHR::Instance inst;
-      inst.transform = node.worldMatrix;
-      inst.blasId    = node.primMesh;
+      VkAccelerationStructureInstanceKHR inst{};
+      inst.transform                      = nvvk::toTransformMatrixKHR(node.worldMatrix);
+      inst.accelerationStructureReference = m_pathtracer.m_rtBuilder.getBlasDeviceAddress(node.primMesh);
+      inst.mask                           = 0xFF;
       tlas.emplace_back(inst);
 
       // The following is use to find the geometry information in the CHIT
@@ -452,18 +452,21 @@ void DenoiseExample::createSceneBuffers()
   nvvk::CommandPool sc(m_device, m_graphicsQueueIndex);
   vk::CommandBuffer cmdBuf = sc.createCommandBuffer();
 
+
   m_sceneBuffer = m_alloc.createBuffer(cmdBuf, sizeof(SceneUBO), nullptr, vk::BufferUsageFlagBits::eUniformBuffer);
   NAME_VK(m_sceneBuffer.buffer);
   m_vertexBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_positions,
                                         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eStorageBuffer
-                                            | vk::BufferUsageFlagBits::eShaderDeviceAddress);
+                                            | vk::BufferUsageFlagBits::eShaderDeviceAddress
+                                            | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR);
   NAME_VK(m_vertexBuffer.buffer);
   m_normalBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_normals,
                                         vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eStorageBuffer);
   NAME_VK(m_normalBuffer.buffer);
   m_indexBuffer = m_alloc.createBuffer(cmdBuf, m_gltfScene.m_indices,
                                        vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eStorageBuffer
-                                           | vk::BufferUsageFlagBits::eShaderDeviceAddress);
+                                           | vk::BufferUsageFlagBits::eShaderDeviceAddress
+                                           | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR);
   NAME_VK(m_indexBuffer.buffer);
 
   // Materials: Storing all material colors and information
