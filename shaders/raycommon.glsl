@@ -17,6 +17,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifdef __cplusplus
+// GLSL Type
+using vec3 = nvmath::vec3f;
+using vec4 = nvmath::vec4f;
+using mat4 = nvmath::mat4f;
+using uint = unsigned int;
+#endif
+
 struct PerRayData_pathtrace
 {
   vec3 result;

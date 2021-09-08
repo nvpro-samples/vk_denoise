@@ -69,8 +69,8 @@ struct RayPickerKHR
 public:
   struct PickInfo
   {
-    mat4  modelViewInv;    // inverse model view matrix
-    mat4  perspectiveInv;  // inverse perspective matrix
+    nvmath::mat4f modelViewInv;    // inverse model view matrix
+    nvmath::mat4f perspectiveInv;  // inverse perspective matrix
     float pickX{0};        // normalized X position
     float pickY{0};        // normalized Y position
   } m_pickInfo;

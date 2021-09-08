@@ -569,7 +569,7 @@ void DenoiseExample::onKeyboard(int key, int scancode, int action, int mods)
       return;
     }
 
-    nvmath::vec3 worldPos = pr.worldRayOrigin + pr.worldRayDirection * pr.hitT;
+    nvmath::vec3f worldPos = pr.worldRayOrigin + pr.worldRayDirection * pr.hitT;
     // Set the interest position
     nvmath::vec3f eye, center, up;
     CameraManip.getLookat(eye, center, up);
