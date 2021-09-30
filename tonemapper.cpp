@@ -21,7 +21,6 @@
 #include "tonemapper.hpp"
 
 
-#include "config.hpp"
 #include "imgui.h"
 #include "imgui_helper.h"
 #include "nvh/fileoperations.hpp"

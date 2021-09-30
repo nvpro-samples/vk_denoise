@@ -25,7 +25,6 @@
 
 #include "example.hpp"
 
-#include "config.hpp"
 #include "nvh/fileoperations.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
 #include "nvvk/pipeline_vk.hpp"
@@ -50,6 +49,11 @@ void DenoiseExample::setup(const vk::Instance& instance, const vk::Device& devic
   m_tonemapper.setup(device, physicalDevice, graphicsQueueIndex, &m_alloc);
   m_denoiser.setup(device, physicalDevice, graphicsQueueIndex);
   m_debug.setup(device);
+
+
+  // Profiler measure the execution time on the GPU
+  m_profiler.init(m_device, m_physicalDevice, graphicsQueueIndex);
+  m_profiler.setLabelUsage(true);  // depends on VK_EXT_debug_u
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -145,7 +149,6 @@ void DenoiseExample::initialize(const std::string& filename)
     m_pathtracer.createOutputs(m_size);
     m_pathtracer.createDescriptorSet(sceneDesc, primDesc, vertexDesc, indexDesc, normalDesc, materialDesc);
     m_pathtracer.createPipeline();
-    m_pathtracer.createShadingBindingTable();
   }
 
 
@@ -154,6 +157,8 @@ void DenoiseExample::initialize(const std::string& filename)
   m_picker.initialize(m_pathtracer.m_rtBuilder.getAccelerationStructure());
   m_tonemapper.initialize(m_size);
   m_denoiser.allocateBuffers(m_size);
+  m_denoiser.createSemaphore();
+  m_denoiser.createCopyPipeline();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -252,6 +257,7 @@ void DenoiseExample::createRenderPass()
 //
 void DenoiseExample::run()
 {
+  m_profiler.beginFrame();
   updateFrameNumber();
 
   // Applying denoiser when on and when start denoiser frame is greater than current frame.
@@ -273,10 +279,14 @@ void DenoiseExample::run()
 
     if(needToRender)
     {
-      m_pathtracer.run(cmdBuf1, m_frameNumber);
+      {
+        auto slot = m_profiler.timeRecurring("RayTrace", cmdBuf1);
+        m_pathtracer.run(cmdBuf1, m_frameNumber);
+      }
 
       if(needToDenoise)
       {
+        auto slot = m_profiler.timeRecurring("Copy2Buffer", cmdBuf1);
         m_denoiser.imageToBuffer(cmdBuf1, m_pathtracer.outputImages());
       }
     }
@@ -302,16 +312,22 @@ void DenoiseExample::run()
 
     if(needToDenoise)
     {
+      auto slot = m_profiler.timeRecurring("Copy2Img", cmdBuf2);
       m_denoiser.bufferToImage(cmdBuf2, &m_imageDenoised);
     }
 
 
     // Apply tonemapper - use the denoiser output or direct ray tracer output
-    m_tonemapper.run(cmdBuf2, m_size);
+    {
+      auto slot = m_profiler.timeRecurring("Tonemap", cmdBuf2);
+      m_tonemapper.run(cmdBuf2, m_size);
+    }
 
 
     // Blit tonemap image to framebuffer
     {
+      auto slot = m_profiler.timeRecurring("Blit", cmdBuf2);
+
       vk::Image inImage  = m_tonemapper.getOutImage().image;
       vk::Image outImage = m_swapChain.getActiveImage();
 
@@ -355,6 +371,8 @@ void DenoiseExample::run()
     cmdBuf2.end();
     submitFrame(cmdBuf2);
   }
+
+  m_profiler.endFrame();
 }
 
 
@@ -473,7 +491,7 @@ void DenoiseExample::createSceneBuffers()
   std::vector<Material> shadeMaterials;
   for(auto& m : m_gltfScene.m_materials)
   {
-    Material mm;
+    Material mm{};
     mm.pbrBaseColorFactor = m.baseColorFactor;
     mm.emissiveFactor     = m.emissiveFactor;
     shadeMaterials.emplace_back(mm);
@@ -508,6 +526,7 @@ void DenoiseExample::destroy()
   m_alloc.destroy(m_primitiveInfoBuffer);
 
   m_alloc.deinit();
+  m_profiler.deinit();
 
   AppBase::destroy();
 }
@@ -619,8 +638,24 @@ void DenoiseExample::renderGui()
     ImGui::Separator();
     ImGui::Text("%s", &m_physicalDevice.getProperties().deviceName[0]);
     Gui::Info("Frame number", "", std::to_string(m_frameNumber).c_str());
-    Gui::Info("Samples", "", std::to_string(m_frameNumber * m_pathtracer.m_pushC.samples).c_str());
+    Gui::Info("Samples", "", std::to_string(m_frameNumber * m_pathtracer.m_pcRay.samples).c_str());
     Gui::Drag("Max Frames", "", &m_maxFrames, nullptr, Gui::Flags::Normal, 1);
+
+    ImGui::Separator();
+    ImGui::Text("Average time in ms for each section");
+    nvh::Profiler::TimerInfo info[5];
+    m_profiler.getTimerInfo("RayTrace", info[0]);
+    Gui::Info("RayTrace", "", std::to_string(info[0].gpu.average / 1000.0f).c_str());
+    m_profiler.getTimerInfo("Copy2Buffer", info[1]);
+    Gui::Info("Copy2Buffer", "", std::to_string(info[1].gpu.average / 1000.0f).c_str());
+    m_profiler.getTimerInfo("Copy2Img", info[2]);
+    Gui::Info("Copy2Img", "", std::to_string(info[2].gpu.average / 1000.0f).c_str());
+    m_profiler.getTimerInfo("Tonemap", info[3]);
+    Gui::Info("Tonemap", "", std::to_string(info[3].gpu.average / 1000.0f).c_str());
+    m_profiler.getTimerInfo("Blit", info[4]);
+    Gui::Info("Blit", "", std::to_string(info[4].gpu.average / 1000.0f).c_str());
+
+    ImGui::Separator();
     Gui::Info("", "", "Press F10 to toggle panel", Gui::Flags::Disabled);
 
     if(modified)

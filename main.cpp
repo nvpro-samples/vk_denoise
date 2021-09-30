@@ -28,12 +28,12 @@
 #include <chrono>
 
 #include "backends/imgui_impl_glfw.h"
-#include "config.hpp"
 #include "example.hpp"
 #include "nvh/inputparser.h"
 #include "nvpsystem.hpp"
 #include "nvvk/context_vk.hpp"
 #include "nvvk/extensions_vk.hpp"
+
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -94,6 +94,8 @@ int main(int argc, char** argv)
   const char** extensions = glfwGetRequiredInstanceExtensions(&count);
   for(uint32_t c = 0; c < count; c++)
     contextInfo.addInstanceExtension(extensions[c]);
+  contextInfo.addInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true);  // Allow debug names
+
 
   // Display
   contextInfo.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
@@ -127,7 +129,8 @@ int main(int argc, char** argv)
 
   // Synchronization (mix of timeline and binary semaphores)
   contextInfo.addDeviceExtension(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, false);
-  contextInfo.addDeviceExtension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, false);
+  vk::PhysicalDeviceSynchronization2FeaturesKHR syncFeature{};
+  contextInfo.addDeviceExtension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, false, &syncFeature);
 
   // Shader - random number
   contextInfo.addDeviceExtension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
@@ -147,9 +150,9 @@ int main(int argc, char** argv)
   try
   {
 #if USE_FLOAT
-    example.denoiser().initOptiX(OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL, OPTIX_PIXEL_FORMAT_FLOAT4, true);
+    example.denoiser().initOptiX({true, true}, OPTIX_PIXEL_FORMAT_FLOAT4, true);
 #else
-    example.denoiser().initOptiX(OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL, OPTIX_PIXEL_FORMAT_HALF4, true);
+    example.denoiser().initOptiX({true, true}, OPTIX_PIXEL_FORMAT_HALF4, false);
 #endif
 
     // Printing which GPU we are using

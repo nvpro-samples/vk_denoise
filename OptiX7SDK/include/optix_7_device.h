@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020 NVIDIA Corporation.  All rights reserved.
+* Copyright (c) 2021 NVIDIA Corporation.  All rights reserved.
 *
 * NVIDIA Corporation and its licensors retain all intellectual property and proprietary
 * rights in and to this software, related documentation and any modifications thereto.
@@ -69,8 +69,7 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
                                                    unsigned int           SBToffset,
                                                    unsigned int           SBTstride,
                                                    unsigned int           missSBTIndex );
-
-/// Initiates a ray tracing query starting with the given traversable (overload with 1 payload register).
+/// Initiates a ray tracing query starting with the given traversable (overload with 1 payload registers).
 ///
 /// \see #optixTrace(OptixTraversableHandle,float3,float3,float,float,float,OptixVisibilityMask,unsigned int,unsigned int,unsigned int,unsigned int)
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
@@ -226,6 +225,7 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
                                                    unsigned int&          p6,
                                                    unsigned int&          p7 );
 
+
 /// Writes the 32-bit payload value at slot 0.
 static __forceinline__ __device__ void optixSetPayload_0( unsigned int p );
 /// Writes the 32-bit payload value at slot 1.
@@ -243,6 +243,7 @@ static __forceinline__ __device__ void optixSetPayload_6( unsigned int p );
 /// Writes the 32-bit payload value at slot 7.
 static __forceinline__ __device__ void optixSetPayload_7( unsigned int p );
 
+
 /// Reads the 32-bit payload value at slot 0.
 static __forceinline__ __device__ unsigned int optixGetPayload_0();
 /// Reads the 32-bit payload value at slot 1.
@@ -259,6 +260,7 @@ static __forceinline__ __device__ unsigned int optixGetPayload_5();
 static __forceinline__ __device__ unsigned int optixGetPayload_6();
 /// Reads the 32-bit payload value at slot 7.
 static __forceinline__ __device__ unsigned int optixGetPayload_7();
+
 
 /// Returns an undefined value.
 static __forceinline__ __device__ unsigned int optixUndefinedValue();
@@ -314,8 +316,13 @@ static __forceinline__ __device__ unsigned int optixGetRayFlags();
 /// Only available in IS, AH, CH, MS
 static __forceinline__ __device__ unsigned int optixGetRayVisibilityMask();
 
+/// Return the traversable handle of a given instance in an Instance 
+/// Acceleration Structure (IAS)
+static __forceinline__ __device__ OptixTraversableHandle optixGetInstanceTraversableFromIAS( OptixTraversableHandle ias, unsigned int instIdx );
+
 /// Return the object space triangle vertex positions of a given triangle in a Geometry
 /// Acceleration Structure (GAS) at a given motion time.
+/// To access vertex data, the GAS must be built using the flag OPTIX_BUILD_FLAG_ALLOW_RANDOM_VERTEX_ACCESS.
 ///
 /// If motion is disabled via OptixPipelineCompileOptions::usesMotionBlur, or the GAS does not contain motion, the
 /// time parameter is ignored.
@@ -323,6 +330,7 @@ static __forceinline__ __device__ void optixGetTriangleVertexData( OptixTraversa
 
 /// Return the object space curve control vertex data of a linear curve in a Geometry
 /// Acceleration Structure (GAS) at a given motion time.
+/// To access vertex data, the GAS must be built using the flag OPTIX_BUILD_FLAG_ALLOW_RANDOM_VERTEX_ACCESS.
 ///
 /// data[i] = {x,y,z,w} with {x,y,z} the position and w the radius of control vertex i.
 /// If motion is disabled via OptixPipelineCompileOptions::usesMotionBlur, or the GAS does not contain motion, the
@@ -331,6 +339,7 @@ static __forceinline__ __device__ void optixGetLinearCurveVertexData( OptixTrave
 
 /// Return the object space curve control vertex data of a quadratic BSpline curve in a Geometry
 /// Acceleration Structure (GAS) at a given motion time.
+/// To access vertex data, the GAS must be built using the flag OPTIX_BUILD_FLAG_ALLOW_RANDOM_VERTEX_ACCESS.
 ///
 /// data[i] = {x,y,z,w} with {x,y,z} the position and w the radius of control vertex i.
 /// If motion is disabled via OptixPipelineCompileOptions::usesMotionBlur, or the GAS does not contain motion, the
@@ -339,6 +348,7 @@ static __forceinline__ __device__ void optixGetQuadraticBSplineVertexData( Optix
 
 /// Return the object space curve control vertex data of a cubic BSpline curve in a Geometry
 /// Acceleration Structure (GAS) at a given motion time.
+/// To access vertex data, the GAS must be built using the flag OPTIX_BUILD_FLAG_ALLOW_RANDOM_VERTEX_ACCESS.
 ///
 /// data[i] = {x,y,z,w} with {x,y,z} the position and w the radius of control vertex i.
 /// If motion is disabled via OptixPipelineCompileOptions::usesMotionBlur, or the GAS does not contain motion, the
@@ -437,6 +447,11 @@ static __forceinline__ __device__ const OptixMatrixMotionTransform* optixGetMatr
 ///
 /// Returns 0 if the traversable handle does not reference an OptixInstance.
 static __forceinline__ __device__ unsigned int optixGetInstanceIdFromHandle( OptixTraversableHandle handle );
+
+/// Returns child traversable handle from an OptixInstance traversable.
+///
+/// Returns 0 if the traversable handle does not reference an OptixInstance.
+static __forceinline__ __device__ OptixTraversableHandle optixGetInstanceChildFromHandle( OptixTraversableHandle handle );
 
 /// Returns object-to-world transform from an OptixInstance traversable.
 ///
@@ -887,6 +902,106 @@ static __forceinline__ __device__ ReturnT optixDirectCall( unsigned int sbtIndex
 /// \param[in] args The arguments to pass to the continuation callable program.
 template <typename ReturnT, typename... ArgTypes>
 static __forceinline__ __device__ ReturnT optixContinuationCall( unsigned int sbtIndex, ArgTypes... args );
+
+
+/// optixTexFootprint2D calculates the footprint of a corresponding 2D texture fetch (non-mipmapped).
+///
+/// On Turing and subsequent architectures, a texture footprint instruction allows user programs to
+/// determine the set of texels that would be accessed by an equivalent filtered texture lookup.
+///
+/// \param[in] tex      CUDA texture object (cast to 64-bit integer)
+/// \param[in] texInfo  Texture info packed into 32-bit integer, described below.
+/// \param[in] x        Texture coordinate
+/// \param[in] y        Texture coordinate
+/// \param[out] singleMipLevel  Result indicating whether the footprint spans only a single miplevel.
+///
+/// The texture info argument is a packed 32-bit integer with the following layout:
+///
+///   texInfo[31:29] = reserved (3 bits)
+///   texInfo[28:24] = miplevel count (5 bits)
+///   texInfo[23:20] = log2 of tile width (4 bits)
+///   texInfo[19:16] = log2 of tile height (4 bits)
+///   texInfo[15:10] = reserved (6 bits)
+///   texInfo[9:8]   = horizontal wrap mode (2 bits) (CUaddress_mode)
+///   texInfo[7:6]   = vertical wrap mode (2 bits) (CUaddress_mode)
+///   texInfo[5]     = mipmap filter mode (1 bit) (CUfilter_mode)
+///   texInfo[4:0]   = maximum anisotropy (5 bits)
+///
+/// Returns a 16-byte structure (as a uint4) that stores the footprint of a texture request at a
+/// particular "granularity", which has the following layout:
+///
+///    struct Texture2DFootprint
+///    {
+///        unsigned long long mask;
+///        unsigned int tileY : 12;
+///        unsigned int reserved1 : 4;
+///        unsigned int dx : 3;
+///        unsigned int dy : 3;
+///        unsigned int reserved2 : 2;
+///        unsigned int granularity : 4;
+///        unsigned int reserved3 : 4;
+///        unsigned int tileX : 12;
+///        unsigned int level : 4;
+///        unsigned int reserved4 : 16;
+///    };
+///
+/// The granularity indicates the size of texel groups that are represented by an 8x8 bitmask. For
+/// example, a granularity of 12 indicates texel groups that are 128x64 texels in size. In a
+/// footprint call, The returned granularity will either be the actual granularity of the result, or
+/// 0 if the footprint call was able to honor the requested granularity (the usual case).
+///
+/// level is the mip level of the returned footprint. Two footprint calls are needed to get the
+/// complete footprint when a texture call spans multiple mip levels.
+///
+/// mask is an 8x8 bitmask of texel groups that are covered, or partially covered, by the footprint.
+/// tileX and tileY give the starting position of the mask in 8x8 texel-group blocks.  For example,
+/// suppose a granularity of 12 (128x64 texels), and tileX=3 and tileY=4. In this case, bit 0 of the
+/// mask (the low order bit) corresponds to texel group coordinates (3*8, 4*8), and texel
+/// coordinates (3*8*128, 4*8*64), within the specified mip level.
+///
+/// If nonzero, dx and dy specify a "toroidal rotation" of the bitmask.  Toroidal rotation of a
+/// coordinate in the mask simply means that its value is reduced by 8.  Continuing the example from
+/// above, if dx=0 and dy=0 the mask covers texel groups (3*8, 4*8) to (3*8+7, 4*8+7) inclusive.
+/// If, on the other hand, dx=2, the rightmost 2 columns in the mask have their x coordinates
+/// reduced by 8, and similarly for dy.
+///
+/// See the OptiX SDK for sample code that illustrates how to unpack the result.
+static __forceinline__ __device__ uint4 optixTexFootprint2D( unsigned long long tex, unsigned int texInfo, float x, float y, unsigned int* singleMipLevel );
+
+/// optixTexFootprint2DLod calculates the footprint of a corresponding 2D texture fetch (tex2DLod)
+/// \param[in] tex      CUDA texture object (cast to 64-bit integer)
+/// \param[in] texInfo  Texture info packed into 32-bit integer, described below.
+/// \param[in] x        Texture coordinate
+/// \param[in] y        Texture coordinate
+/// \param[in] level    Level of detail (lod)
+/// \param[in] coarse   Requests footprint from coarse miplevel, when the footprint spans two levels.
+/// \param[out] singleMipLevel  Result indicating whether the footprint spans only a single miplevel.
+/// \see #optixTexFootprint2D(unsigned long long,unsigned int,float,float,unsigned int*)
+static __forceinline__ __device__ uint4
+optixTexFootprint2DLod( unsigned long long tex, unsigned int texInfo, float x, float y, float level, bool coarse, unsigned int* singleMipLevel );
+
+/// optixTexFootprint2DGrad calculates the footprint of a corresponding 2D texture fetch (tex2DGrad)
+/// \param[in] tex      CUDA texture object (cast to 64-bit integer)
+/// \param[in] texInfo  Texture info packed into 32-bit integer, described below.
+/// \param[in] x        Texture coordinate
+/// \param[in] y        Texture coordinate
+/// \param[in] dPdx_x   Derivative of x coordinte, which determines level of detail.
+/// \param[in] dPdx_y   Derivative of x coordinte, which determines level of detail.
+/// \param[in] dPdy_x   Derivative of y coordinte, which determines level of detail.
+/// \param[in] dPdy_y   Derivative of y coordinte, which determines level of detail.
+/// \param[in] coarse   Requests footprint from coarse miplevel, when the footprint spans two levels.
+/// \param[out] singleMipLevel  Result indicating whether the footprint spans only a single miplevel.
+/// \see #optixTexFootprint2D(unsigned long long,unsigned int,float,float,unsigned int*)
+static __forceinline__ __device__ uint4 optixTexFootprint2DGrad( unsigned long long tex,
+                                                                 unsigned int       texInfo,
+                                                                 float              x,
+                                                                 float              y,
+                                                                 float              dPdx_x,
+                                                                 float              dPdx_y,
+                                                                 float              dPdy_x,
+                                                                 float              dPdy_y,
+                                                                 bool               coarse,
+                                                                 unsigned int*      singleMipLevel );
 
 /*@}*/  // end group optix_device_api
 

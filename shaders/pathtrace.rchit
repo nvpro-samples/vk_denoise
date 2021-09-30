@@ -16,13 +16,13 @@
  * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  */
- 
+
 #version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
 //#extension GL_EXT_nonuniform_qualifier : enable
 
-#include "../config.hpp"
+#include "host_device.h"
 #include "raycommon.glsl"
 #include "sampling.glsl"
 
@@ -34,13 +34,13 @@ layout(location = 2) rayPayloadEXT bool payloadShadow;
 hitAttributeEXT vec2 attribs;
 
 // clang-format off
-layout(binding = B_BVH, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = B_SCENE, set = 0) uniform _ubo { Scene SceneInfo; };
-layout(binding = B_PRIM_INFO, set = 0) readonly buffer _OffsetIndices { primInfo InstanceInfo[]; } ;
-layout(binding = B_VERTEX, set = 0) readonly buffer _VertexBuf { float VertexBuf[]; } ;
-layout(binding = B_INDEX, set = 0) readonly buffer _Indices { uint IndexBuf[]; } ;
-layout(binding = B_NORMAL, set = 0) readonly buffer _NormalBuf { float NormalBuf[]; } ;
-layout(binding = B_MATERIAL, set = 0) readonly buffer _MaterialBuffer { Material m[]; } MaterialBuffer;
+layout(binding = eBvh, set = 0) uniform accelerationStructureEXT topLevelAS;
+layout(binding = eScene, set = 0) uniform _ubo { Scene SceneInfo; };
+layout(binding = ePrimInfo, set = 0) readonly buffer _OffsetIndices { primInfo InstanceInfo[]; } ;
+layout(binding = eVertex, set = 0) readonly buffer _VertexBuf { float VertexBuf[]; } ;
+layout(binding = eIndex, set = 0) readonly buffer _Indices { uint IndexBuf[]; } ;
+layout(binding = eNormal, set = 0) readonly buffer _NormalBuf { float NormalBuf[]; } ;
+layout(binding = eMaterial, set = 0) readonly buffer _MaterialBuffer { Material m[]; } MaterialBuffer;
 // clang-format on
 
 // Return the vertex position

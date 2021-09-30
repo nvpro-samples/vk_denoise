@@ -18,21 +18,27 @@
  */
 
 #version 460
-#extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_image_load_formatted : enable
 
-#include "raycommon.glsl"
-#include "host_device.h"
 
-layout(location = 0) rayPayloadInEXT PerRayData_pathtrace prd;
+// clang-format off
+layout(set = 0, binding = 0) uniform image2D inImage0;
+layout(set = 0, binding = 1) buffer _buf0 { vec4 buff0[]; };
+// clang-format on
 
-layout(push_constant) uniform Constants
-{
-  PcRay pcRay;
-};
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
 
 void main()
 {
-  prd.radiance = pcRay.background.rgb;
-  prd.done     = 1;
+  ivec2 imgSize = imageSize(inImage0);
+  ivec2 coord   = ivec2(gl_GlobalInvocationID.xy);
+  if(coord.x >= imgSize.x || coord.y >= imgSize.y)  // Check limits
+    return;
+
+  uint linear = coord.y * imgSize.x + coord.x;
+
+  imageStore(inImage0, coord, buff0[linear]);
 }

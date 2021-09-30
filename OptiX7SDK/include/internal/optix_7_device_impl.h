@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020 NVIDIA Corporation.  All rights reserved.
+* Copyright (c) 2021 NVIDIA Corporation.  All rights reserved.
 *
 * NVIDIA Corporation and its licensors retain all intellectual property and proprietary
 * rights in and to this software, related documentation and any modifications thereto.
@@ -48,17 +48,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
                                                    unsigned int           SBTstride,
                                                    unsigned int           missSBTIndex )
 {
-    float ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
-    float dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
+    float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
+    float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
+    unsigned int p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21,
+        p22, p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
-        "call _optix_trace_0"
-        ", (%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14"
-        ");"
-        :
-        /* no return value */
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ), "r"( missSBTIndex )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 0 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
+    (void)p0, (void)p1, (void)p2, (void)p3, (void)p4, (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11,
+        (void)p12, (void)p13, (void)p14, (void)p15, (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21,
+        (void)p22, (void)p23, (void)p24, (void)p25, (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
 
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
@@ -76,17 +90,29 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out;
+    unsigned int p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22,
+        p23, p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
-        "call (%0), _optix_trace_1"
-        ", (%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15"
-        ", %16"
-        ");"
-        : "=r"( p0_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ), "f"( rayTime ),
-          "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ), "r"( missSBTIndex ), "r"( p0 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 1 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
+    (void)p1, (void)p2, (void)p3, (void)p4, (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11,
+        (void)p12, (void)p13, (void)p14, (void)p15, (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21,
+        (void)p22, (void)p23, (void)p24, (void)p25, (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
 
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
@@ -105,20 +131,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out;
+    unsigned int p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23,
+        p24, p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
-        "call (%0, %1), _optix_trace_2"
-        ", (%2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16"
-        ", %17, %18"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 2 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
+    (void)p2, (void)p3, (void)p4, (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12,
+        (void)p13, (void)p14, (void)p15, (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22,
+        (void)p23, (void)p24, (void)p25, (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
+
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
                                                    float3                 rayOrigin,
                                                    float3                 rayDirection,
@@ -136,21 +173,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out, p2_out;
+    unsigned int p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24,
+        p25, p26, p27, p28, p29, p30, p31;
     asm volatile(
-        "call (%0, %1, %2), _optix_trace_3"
-        ", (%3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17"
-        ", %18, %19, %20"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out ), "=r"( p2_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 ), "r"( p2 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 3 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
-    p2 = p2_out;
+    (void)p3, (void)p4, (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13,
+        (void)p14, (void)p15, (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23,
+        (void)p24, (void)p25, (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
+
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
                                                    float3                 rayOrigin,
                                                    float3                 rayDirection,
@@ -169,22 +216,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out, p2_out, p3_out;
+    unsigned int p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24, p25,
+        p26, p27, p28, p29, p30, p31;
     asm volatile(
-        "call (%0, %1, %2, %3), _optix_trace_4"
-        ", (%4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18"
-        ", %19, %20, %21, %22"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out ), "=r"( p2_out ), "=r"( p3_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 4 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
-    p2 = p2_out;
-    p3 = p3_out;
+    (void)p4, (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13, (void)p14,
+        (void)p15, (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23, (void)p24,
+        (void)p25, (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
+
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
                                                    float3                 rayOrigin,
                                                    float3                 rayDirection,
@@ -204,23 +260,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out, p2_out, p3_out, p4_out;
+    unsigned int p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24, p25,
+        p26, p27, p28, p29, p30, p31;
     asm volatile(
-        "call (%0, %1, %2, %3, %4), _optix_trace_5"
-        ", (%5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19"
-        ", %20, %21, %22, %23, %24"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out ), "=r"( p2_out ), "=r"( p3_out ), "=r"( p4_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 5 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
-    p2 = p2_out;
-    p3 = p3_out;
-    p4 = p4_out;
+    (void)p5, (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13, (void)p14, (void)p15,
+        (void)p16, (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23, (void)p24, (void)p25,
+        (void)p26, (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
+
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
                                                    float3                 rayOrigin,
                                                    float3                 rayDirection,
@@ -241,24 +305,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out, p2_out, p3_out, p4_out, p5_out;
+    unsigned int p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24, p25, p26,
+        p27, p28, p29, p30, p31;
     asm volatile(
-        "call (%0, %1, %2, %3, %4, %5), _optix_trace_6"
-        ", (%6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20"
-        ", %21, %22, %23, %24, %25, %26"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out ), "=r"( p2_out ), "=r"( p3_out ), "=r"( p4_out ), "=r"( p5_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 6 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
-    p2 = p2_out;
-    p3 = p3_out;
-    p4 = p4_out;
-    p5 = p5_out;
+    (void)p6, (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13, (void)p14, (void)p15, (void)p16,
+        (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23, (void)p24, (void)p25, (void)p26,
+        (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
+
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
                                                    float3                 rayOrigin,
                                                    float3                 rayDirection,
@@ -280,25 +351,31 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out, p2_out, p3_out, p4_out, p5_out, p6_out;
+    unsigned int p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24, p25, p26, p27,
+        p28, p29, p30, p31;
     asm volatile(
-        "call (%0, %1, %2, %3, %4, %5, %6), _optix_trace_7"
-        ", (%7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21"
-        ", %22, %23, %24, %25, %26, %27, %28"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out ), "=r"( p2_out ), "=r"( p3_out ), "=r"( p4_out ), "=r"( p5_out ), "=r"( p6_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 7 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
-    p2 = p2_out;
-    p3 = p3_out;
-    p4 = p4_out;
-    p5 = p5_out;
-    p6 = p6_out;
+    (void)p7, (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13, (void)p14, (void)p15, (void)p16,
+        (void)p17, (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23, (void)p24, (void)p25, (void)p26,
+        (void)p27, (void)p28, (void)p29, (void)p30, (void)p31;
 }
+
 static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle,
                                                    float3                 rayOrigin,
                                                    float3                 rayDirection,
@@ -321,118 +398,129 @@ static __forceinline__ __device__ void optixTrace( OptixTraversableHandle handle
 {
     float        ox = rayOrigin.x, oy = rayOrigin.y, oz = rayOrigin.z;
     float        dx = rayDirection.x, dy = rayDirection.y, dz = rayDirection.z;
-    unsigned int p0_out, p1_out, p2_out, p3_out, p4_out, p5_out, p6_out, p7_out;
+    unsigned int p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, p23, p24, p25, p26, p27, p28,
+        p29, p30, p31;
     asm volatile(
-        "call (%0, %1, %2, %3, %4, %5, %6, %7), _optix_trace_8"
-        ", (%8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22"
-        ", %23, %24, %25, %26, %27, %28, %29, %30"
-        ");"
-        : "=r"( p0_out ), "=r"( p1_out ), "=r"( p2_out ), "=r"( p3_out ), "=r"( p4_out ), "=r"( p5_out ),
-          "=r"( p6_out ), "=r"( p7_out )
-        : "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ), "f"( tmax ),
-          "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
-          "r"( missSBTIndex ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ), "r"( p7 )
+        "call"
+        "(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%"
+        "29,%30,%31),"
+        "_optix_trace_typed_32,"
+        "(%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%"
+        "59,%60,%61,%62,%63,%64,%65,%66,%67,%68,%69,%70,%71,%72,%73,%74,%75,%76,%77,%78,%79,%80);"
+        : "=r"( p0 ), "=r"( p1 ), "=r"( p2 ), "=r"( p3 ), "=r"( p4 ), "=r"( p5 ), "=r"( p6 ), "=r"( p7 ), "=r"( p8 ),
+          "=r"( p9 ), "=r"( p10 ), "=r"( p11 ), "=r"( p12 ), "=r"( p13 ), "=r"( p14 ), "=r"( p15 ), "=r"( p16 ),
+          "=r"( p17 ), "=r"( p18 ), "=r"( p19 ), "=r"( p20 ), "=r"( p21 ), "=r"( p22 ), "=r"( p23 ), "=r"( p24 ),
+          "=r"( p25 ), "=r"( p26 ), "=r"( p27 ), "=r"( p28 ), "=r"( p29 ), "=r"( p30 ), "=r"( p31 )
+        : "r"( 0 ), "l"( handle ), "f"( ox ), "f"( oy ), "f"( oz ), "f"( dx ), "f"( dy ), "f"( dz ), "f"( tmin ),
+          "f"( tmax ), "f"( rayTime ), "r"( visibilityMask ), "r"( rayFlags ), "r"( SBToffset ), "r"( SBTstride ),
+          "r"( missSBTIndex ), "r"( 8 ), "r"( p0 ), "r"( p1 ), "r"( p2 ), "r"( p3 ), "r"( p4 ), "r"( p5 ), "r"( p6 ),
+          "r"( p7 ), "r"( p8 ), "r"( p9 ), "r"( p10 ), "r"( p11 ), "r"( p12 ), "r"( p13 ), "r"( p14 ), "r"( p15 ),
+          "r"( p16 ), "r"( p17 ), "r"( p18 ), "r"( p19 ), "r"( p20 ), "r"( p21 ), "r"( p22 ), "r"( p23 ), "r"( p24 ),
+          "r"( p25 ), "r"( p26 ), "r"( p27 ), "r"( p28 ), "r"( p29 ), "r"( p30 ), "r"( p31 )
         : );
-    p0 = p0_out;
-    p1 = p1_out;
-    p2 = p2_out;
-    p3 = p3_out;
-    p4 = p4_out;
-    p5 = p5_out;
-    p6 = p6_out;
-    p7 = p7_out;
+    (void)p8, (void)p9, (void)p10, (void)p11, (void)p12, (void)p13, (void)p14, (void)p15, (void)p16, (void)p17,
+        (void)p18, (void)p19, (void)p20, (void)p21, (void)p22, (void)p23, (void)p24, (void)p25, (void)p26, (void)p27,
+        (void)p28, (void)p29, (void)p30, (void)p31;
 }
 
-#define OPTIX_DEFINE_optixSetPayload_BODY( which )                                                                     \
-    asm volatile( "call _optix_set_payload_" #which ", (%0);" : : "r"( p ) : );
-
-#define OPTIX_DEFINE_optixGetPayload_BODY( which )                                                                     \
-    unsigned int result;                                                                                               \
-    asm volatile( "call (%0), _optix_get_payload_" #which ", ();" : "=r"( result ) : );                                         \
-    return result;
 
 static __forceinline__ __device__ void optixSetPayload_0( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 0 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 0 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_1( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 1 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 1 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_2( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 2 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 2 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_3( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 3 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 3 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_4( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 4 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 4 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_5( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 5 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 5 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_6( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 6 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 6 ), "r"( p ) : );
 }
 
 static __forceinline__ __device__ void optixSetPayload_7( unsigned int p )
 {
-    OPTIX_DEFINE_optixSetPayload_BODY( 7 )
+    asm volatile( "call _optix_set_payload, (%0, %1);" : : "r"( 7 ), "r"( p ) : );
 }
+
 
 static __forceinline__ __device__ unsigned int optixGetPayload_0()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 0 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 0 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_1()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 1 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 1 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_2()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 2 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 2 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_3()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 3 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 3 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_4()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 4 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 4 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_5()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 5 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 5 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_6()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 6 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 6 ) : );
+    return result;
 }
 
 static __forceinline__ __device__ unsigned int optixGetPayload_7()
 {
-    OPTIX_DEFINE_optixGetPayload_BODY( 7 );
+    unsigned int result;
+    asm volatile( "call (%0), _optix_get_payload, (%1);" : "=r"( result ) : "r"( 7 ) : );
+    return result;
 }
 
-#undef OPTIX_DEFINE_optixSetPayload_BODY
-#undef OPTIX_DEFINE_optixGetPayload_BODY
 
 static __forceinline__ __device__ unsigned int optixUndefinedValue()
 {
@@ -511,6 +599,16 @@ static __forceinline__ __device__ unsigned int optixGetRayVisibilityMask()
     asm( "call (%0), _optix_get_ray_visibility_mask, ();" : "=r"( u0 ) : );
     return u0;
 }
+
+static __forceinline__ __device__ OptixTraversableHandle optixGetInstanceTraversableFromIAS( OptixTraversableHandle ias,
+                                                                                             unsigned int           instIdx )
+{
+    unsigned long long handle;
+    asm( "call (%0), _optix_get_instance_traversable_from_ias, (%1, %2);"
+         : "=l"( handle ) : "l"( ias ), "r"( instIdx ) );
+    return (OptixTraversableHandle)handle;
+}
+
 
 static __forceinline__ __device__ void optixGetTriangleVertexData( OptixTraversableHandle gas,
                                                                    unsigned int           primIdx,
@@ -777,6 +875,13 @@ static __forceinline__ __device__ unsigned int optixGetInstanceIdFromHandle( Opt
     int i0;
     asm( "call (%0), _optix_get_instance_id_from_handle, (%1);" : "=r"( i0 ) : "l"( handle ) : );
     return i0;
+}
+
+static __forceinline__ __device__ OptixTraversableHandle optixGetInstanceChildFromHandle( OptixTraversableHandle handle )
+{
+    unsigned long long i0;
+    asm( "call (%0), _optix_get_instance_child_from_handle, (%1);" : "=l"( i0 ) : "l"( handle ) : );
+    return (OptixTraversableHandle)i0;
 }
 
 static __forceinline__ __device__ const float4* optixGetInstanceTransformFromHandle( OptixTraversableHandle handle )
@@ -1322,3 +1427,63 @@ static __forceinline__ __device__ ReturnT optixContinuationCall( unsigned int sb
     return call( args... );
 }
 #endif
+
+static __forceinline__ __device__ uint4 optixTexFootprint2D( unsigned long long tex, unsigned int texInfo, float x, float y, unsigned int* singleMipLevel )
+{
+    uint4              result;
+    unsigned long long resultPtr         = reinterpret_cast<unsigned long long>( &result );
+    unsigned long long singleMipLevelPtr = reinterpret_cast<unsigned long long>( singleMipLevel );
+    // Cast float args to integers, because the intrinics take .b32 arguments when compiled to PTX.
+    asm volatile(
+        "call _optix_tex_footprint_2d_v2"
+        ", (%0, %1, %2, %3, %4, %5);"
+        :
+        : "l"( tex ), "r"( texInfo ), "r"( __float_as_uint( x ) ), "r"( __float_as_uint( y ) ),
+          "l"( singleMipLevelPtr ), "l"( resultPtr )
+        : );
+    return result;
+}
+
+static __forceinline__ __device__ uint4 optixTexFootprint2DGrad( unsigned long long tex,
+                                                                 unsigned int       texInfo,
+                                                                 float              x,
+                                                                 float              y,
+                                                                 float              dPdx_x,
+                                                                 float              dPdx_y,
+                                                                 float              dPdy_x,
+                                                                 float              dPdy_y,
+                                                                 bool               coarse,
+                                                                 unsigned int*      singleMipLevel )
+{
+    uint4              result;
+    unsigned long long resultPtr         = reinterpret_cast<unsigned long long>( &result );
+    unsigned long long singleMipLevelPtr = reinterpret_cast<unsigned long long>( singleMipLevel );
+    // Cast float args to integers, because the intrinics take .b32 arguments when compiled to PTX.
+    asm volatile(
+        "call _optix_tex_footprint_2d_grad_v2"
+        ", (%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10);"
+        :
+        : "l"( tex ), "r"( texInfo ), "r"( __float_as_uint( x ) ), "r"( __float_as_uint( y ) ),
+          "r"( __float_as_uint( dPdx_x ) ), "r"( __float_as_uint( dPdx_y ) ), "r"( __float_as_uint( dPdy_x ) ),
+          "r"( __float_as_uint( dPdy_y ) ), "r"( static_cast<unsigned int>( coarse ) ), "l"( singleMipLevelPtr ), "l"( resultPtr )
+        : );
+
+    return result;
+}
+
+static __forceinline__ __device__ uint4
+optixTexFootprint2DLod( unsigned long long tex, unsigned int texInfo, float x, float y, float level, bool coarse, unsigned int* singleMipLevel )
+{
+    uint4              result;
+    unsigned long long resultPtr         = reinterpret_cast<unsigned long long>( &result );
+    unsigned long long singleMipLevelPtr = reinterpret_cast<unsigned long long>( singleMipLevel );
+    // Cast float args to integers, because the intrinics take .b32 arguments when compiled to PTX.
+    asm volatile(
+        "call _optix_tex_footprint_2d_lod_v2"
+        ", (%0, %1, %2, %3, %4, %5, %6, %7);"
+        :
+        : "l"( tex ), "r"( texInfo ), "r"( __float_as_uint( x ) ), "r"( __float_as_uint( y ) ),
+          "r"( __float_as_uint( level ) ), "r"( static_cast<unsigned int>( coarse ) ), "l"( singleMipLevelPtr ), "l"( resultPtr )
+        : );
+    return result;
+}

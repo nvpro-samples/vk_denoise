@@ -19,7 +19,6 @@
 
 
 #include "pathtrace.hpp"
-#include "config.hpp"
 #include "imgui.h"
 #include "imgui/imgui_helper.h"
 #include "nvh/alignment.hpp"
@@ -48,6 +47,7 @@ void PathTracer::setup(const vk::Device& device, const vk::PhysicalDevice& physi
   m_rtProperties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
   m_rtBuilder.setup(device, allocator, queueIndex);
+  m_sbt.setup(device, queueIndex, allocator, m_rtProperties);
   m_debug.setup(device);
 }
 
@@ -64,7 +64,7 @@ void PathTracer::destroy()
   m_device.destroy(m_rtDescSetLayout);
   m_device.destroy(m_rtPipeline);
   m_device.destroy(m_rtPipelineLayout);
-  m_alloc->destroy(m_rtSBTBuffer);
+  m_sbt.destroy();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -78,7 +78,7 @@ void PathTracer::createOutputs(vk::Extent2D size)
   m_outputSize = size;
 
   vk::DeviceSize imgSize = static_cast<unsigned long long>(size.width) * size.height * 4 * sizeof(float);
-  m_outputImages.resize(3);  // RGB, Albedo, Normal
+  m_outputImages.resize(NB_OUT_IMG);  // RGB, Albedo, Normal
 
 
 #if USE_FLOAT
@@ -93,7 +93,7 @@ void PathTracer::createOutputs(vk::Extent2D size)
 
   {
     nvvk::ScopeCommandBuffer cmdBuf(m_device, m_queueIndex);
-    for(size_t i = 0; i < 3; i++)
+    for(size_t i = 0; i < NB_OUT_IMG; i++)
     {
       nvvk::Image image = m_alloc->createImage(cmdBuf, imgSize, nullptr, imageInfo, vk::ImageLayout::eGeneral);
       vk::ImageViewCreateInfo ivInfo           = nvvk::makeImageViewCreateInfo(image.image, imageInfo);
@@ -119,14 +119,14 @@ void PathTracer::createDescriptorSet(const vk::DescriptorBufferInfo& sceneUbo,
                                      const vk::DescriptorBufferInfo& normalBuffer,
                                      const vk::DescriptorBufferInfo& materialBuffer)
 {
-  m_binding.addBinding(vkDSLB(B_BVH, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR | vkSS::eClosestHitKHR));
-  m_binding.addBinding(vkDSLB(B_SCENE, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR | vkSS::eClosestHitKHR));  // Scene, camera
-  m_binding.addBinding(vkDSLB(B_PRIM_INFO, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));  // Primitive info
-  m_binding.addBinding(vkDSLB(B_VERTEX, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));     // Vertices
-  m_binding.addBinding(vkDSLB(B_INDEX, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));      // Indices
-  m_binding.addBinding(vkDSLB(B_NORMAL, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));     // Normals
-  m_binding.addBinding(vkDSLB(B_MATERIAL, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));   // material
-  m_binding.addBinding(vkDSLB(B_IMAGES, vkDT::eStorageImage, 3, vkSS::eRaygenKHR));          // Output images (3)
+  m_binding.addBinding(SceneBindings::eBvh, vkDT::eAccelerationStructureKHR, 1, vkSS::eRaygenKHR | vkSS::eClosestHitKHR);
+  m_binding.addBinding(SceneBindings::eScene, vkDT::eUniformBuffer, 1, vkSS::eRaygenKHR | vkSS::eClosestHitKHR);  // Scene, camera
+  m_binding.addBinding(SceneBindings::ePrimInfo, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR);  // Primitive info
+  m_binding.addBinding(SceneBindings::eVertex, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR);    // Vertices
+  m_binding.addBinding(SceneBindings::eIndex, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR);     // Indices
+  m_binding.addBinding(SceneBindings::eNormal, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR);    // Normals
+  m_binding.addBinding(SceneBindings::eMaterial, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR);  // material
+  m_binding.addBinding(SceneBindings::eImages, vkDT::eStorageImage, NB_OUT_IMG, vkSS::eRaygenKHR);  // Output images (1 or 3)
 
   CREATE_NAMED_VK(m_rtDescPool, m_binding.createPool(m_device));
   CREATE_NAMED_VK(m_rtDescSetLayout, m_binding.createLayout(m_device));
@@ -142,15 +142,15 @@ void PathTracer::createDescriptorSet(const vk::DescriptorBufferInfo& sceneUbo,
   {
     descImgInfo.emplace_back(i.descriptor);
   }
-  writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, B_IMAGES, descImgInfo.data()));
+  writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, SceneBindings::eImages, descImgInfo.data()));
 
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_BVH, &descAsInfo));
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_SCENE, &sceneUbo));
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_PRIM_INFO, &primitiveInfo));
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_VERTEX, &vertexBuffer));
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_INDEX, &indexBuffer));
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_NORMAL, &normalBuffer));
-  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, B_MATERIAL, &materialBuffer));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::eBvh, &descAsInfo));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::eScene, &sceneUbo));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::ePrimInfo, &primitiveInfo));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::eVertex, &vertexBuffer));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::eIndex, &indexBuffer));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::eNormal, &normalBuffer));
+  writes.emplace_back(m_binding.makeWrite(m_rtDescSet, SceneBindings::eMaterial, &materialBuffer));
   m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
   updateDescriptorSet();
@@ -168,7 +168,7 @@ void PathTracer::updateDescriptorSet()
   {
     descImgInfo.emplace_back(i.descriptor);
   }
-  writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, B_IMAGES, descImgInfo.data()));
+  writes.emplace_back(m_binding.makeWriteArray(m_rtDescSet, SceneBindings::eImages, descImgInfo.data()));
 
   m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -212,7 +212,7 @@ void PathTracer::createPipeline()
   hg.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
   m_groups.push_back(hg);
 
-  vk::PushConstantRange        pushConstant{vk::ShaderStageFlagBits::eRaygenKHR, 0, sizeof(PushConstant)};
+  vk::PushConstantRange pushConstant{vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eMissKHR, 0, sizeof(PcRay)};
   vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
   pipelineLayoutCreateInfo.setSetLayoutCount(1);
   pipelineLayoutCreateInfo.setPSetLayouts(&m_rtDescSetLayout);
@@ -230,42 +230,13 @@ void PathTracer::createPipeline()
   rayPipelineInfo.setLayout(m_rtPipelineLayout);
   CREATE_NAMED_VK(m_rtPipeline, static_cast<const vk::Pipeline&>(m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo)));
 
+  // Create the shading binding table
+  m_sbt.create(m_rtPipeline, rayPipelineInfo);
+
   m_device.destroy(raygenSM);
   m_device.destroy(missSM);
   m_device.destroy(shadowmissSM);
   m_device.destroy(chitSM);
-}
-
-//--------------------------------------------------------------------------------------------------
-// Creating a tight SBT with the handle of all shader groups
-//
-void PathTracer::createShadingBindingTable()
-{
-  auto     groupCount      = static_cast<uint32_t>(m_groups.size());   // 3 shaders: raygen, miss, chit
-  uint32_t groupHandleSize = m_rtProperties.shaderGroupHandleSize;     // Size of a program identifier
-  uint32_t alignSize       = m_rtProperties.shaderGroupBaseAlignment;  // Size of a program identifier
-
-  // Fetch all the shader handles used in the pipeline, so that they can be written in the SBT
-  uint32_t             sbtSize = groupCount * alignSize;
-  std::vector<uint8_t> shaderHandleStorage(sbtSize);
-  auto result = m_device.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
-  assert(result == vk::Result::eSuccess);
-
-  m_rtSBTBuffer =
-      m_alloc->createBuffer(sbtSize, vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress,
-                            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-  NAME_VK(m_rtSBTBuffer.buffer);
-
-  // Write the handles in the SBT
-  void* mapped = m_alloc->map(m_rtSBTBuffer);
-  auto* pData  = reinterpret_cast<uint8_t*>(mapped);
-  for(uint32_t g = 0; g < groupCount; g++)
-  {
-    memcpy(pData, shaderHandleStorage.data() + g * groupHandleSize, groupHandleSize);  // raygen
-    pData += alignSize;
-  }
-  m_alloc->unmap(m_rtSBTBuffer);
 }
 
 
@@ -276,27 +247,19 @@ void PathTracer::run(const vk::CommandBuffer& cmdBuf, int frame /*= 0*/)
 {
   LABEL_SCOPE_VK(cmdBuf);
 
-  m_pushC.frame = frame;
+  m_pcRay.frame = frame;
 
   cmdBuf.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, m_rtPipeline);
   cmdBuf.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, m_rtPipelineLayout, 0, {m_rtDescSet}, {});
-  cmdBuf.pushConstants<PushConstant>(m_rtPipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR, 0, m_pushC);
+  cmdBuf.pushConstants<PcRay>(m_rtPipelineLayout, vk::ShaderStageFlagBits::eRaygenKHR | vk::ShaderStageFlagBits::eMissKHR, 0, m_pcRay);
 
 
-  // Size of a program identifier
-  uint32_t groupSize   = nvh::align_up(m_rtProperties.shaderGroupHandleSize, m_rtProperties.shaderGroupBaseAlignment);
-  uint32_t groupStride = groupSize;
-  vk::DeviceAddress sbtAddress = m_device.getBufferAddress({m_rtSBTBuffer.buffer});
+  const std::array<vk::StridedDeviceAddressRegionKHR, 4> regions = {m_sbt.getRegion(nvvk::SBTWrapper::eRaygen),
+                                                                    m_sbt.getRegion(nvvk::SBTWrapper::eMiss),
+                                                                    m_sbt.getRegion(nvvk::SBTWrapper::eHit),
+                                                                    m_sbt.getRegion(nvvk::SBTWrapper::eCallable)};
 
-  using Stride = vk::StridedDeviceAddressRegionKHR;
-  std::array<Stride, 4> strideAddresses{Stride{sbtAddress + 0u * groupSize, groupStride, groupSize * 1},  // raygen
-                                        Stride{sbtAddress + 1u * groupSize, groupStride, groupSize * 2},  // miss
-                                        Stride{sbtAddress + 3u * groupSize, groupStride, groupSize * 1},  // hit
-                                        Stride{0u, 0u, 0u}};
-
-  cmdBuf.traceRaysKHR(&strideAddresses[0], &strideAddresses[1], &strideAddresses[2],
-                      &strideAddresses[3],                          //
-                      m_outputSize.width, m_outputSize.height, 1);  //
+  cmdBuf.traceRaysKHR(&regions[0], &regions[1], &regions[2], &regions[3], m_outputSize.width, m_outputSize.height, 1);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -305,7 +268,8 @@ void PathTracer::run(const vk::CommandBuffer& cmdBuf, int frame /*= 0*/)
 bool PathTracer::uiSetup()
 {
   bool modified = false;
-  modified |= ImGuiH::Control::Slider("Max Ray Depth", "", &m_pushC.depth, nullptr, ImGuiH::Control::Flags::Normal, 1, 10);
-  modified |= ImGuiH::Control::Slider("Samples Per Frame", "", &m_pushC.samples, nullptr, ImGuiH::Control::Flags::Normal, 1, 100);
+  modified |= ImGuiH::Control::Slider("Max Ray Depth", "", &m_pcRay.depth, nullptr, ImGuiH::Control::Flags::Normal, 1, 10);
+  modified |= ImGuiH::Control::Slider("Samples Per Frame", "", &m_pcRay.samples, nullptr, ImGuiH::Control::Flags::Normal, 1, 100);
+  modified |= ImGuiH::Control::Color("Background", "", &m_pcRay.background[0]);
   return modified;
 }

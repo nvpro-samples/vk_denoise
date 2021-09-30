@@ -18,7 +18,6 @@
  */
 
 
-
 #pragma once
 
 //////////////////////////////////////////////////////////////////////////
@@ -35,6 +34,8 @@
 #include "nvvk/raytraceKHR_vk.hpp"
 #include "nvvk/shaders_vk.hpp"
 
+#include "shaders/host_device.h"
+#include "nvvk/sbtwrapper_vk.hpp"
 
 extern std::vector<std::string> defaultSearchPaths;
 
@@ -42,13 +43,10 @@ class PathTracer
 {
 
 public:
-  // Push constant sent to the ray tracer
-  struct PushConstant
-  {
-    int frame{0};    // Current frame number
-    int depth{5};    // Max depth
-    int samples{5};  // samples per frame
-  } m_pushC;
+  PcRay m_pcRay = {{0.2f, 0.2f, 0.2f},  // background color
+                   0,                   // Current frame number
+                   5,                   // Max depth
+                   5};                  // samples per frame
 
   // Default constructor
   PathTracer() = default;
@@ -72,23 +70,23 @@ public:
 
   void updateDescriptorSet();
   void createPipeline();
-  void createShadingBindingTable();
   void run(const vk::CommandBuffer& cmdBuf, int frame = 0);
   bool uiSetup();
 
 private:
   std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_groups;
   //
-  vk::Device       m_device;
-  nvvk::DebugUtil  m_debug;
-  uint32_t         m_queueIndex;
+  vk::Device               m_device;
+  nvvk::DebugUtil          m_debug;
+  uint32_t                 m_queueIndex;
   nvvk::ResourceAllocator* m_alloc{nullptr};
+  nvvk::SBTWrapper         m_sbt;
+
 
   std::vector<nvvk::Texture> m_outputImages;  // RGB, Albedo, Normal
 
   vk::Extent2D                                        m_outputSize;
   nvvk::DescriptorSetBindings                         m_binding;
-  nvvk::Buffer                                        m_rtSBTBuffer;
   vk::PhysicalDeviceRayTracingPipelinePropertiesKHR   m_rtProperties;
   nvvk::DescriptorSetBindings                         m_rtDescSetLayoutBind;
   vk::DescriptorPool                                  m_rtDescPool;

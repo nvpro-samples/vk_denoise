@@ -31,9 +31,14 @@
 #include "imgui/imgui_helper.h"
 #include "nvvk/commands_vk.hpp"
 #include "stb_image_write.h"
+#include "nvvk/descriptorsets_vk.hpp"
+#include "nvvk/debug_util_vk.hpp"
+#include "nvh/fileoperations.hpp"
+#include "nvvk/shaders_vk.hpp"
 
 
 OptixDeviceContext m_optixDevice;
+#define USE_COMPUTE 1
 
 
 //--------------------------------------------------------------------------------------------------
@@ -57,7 +62,7 @@ void DenoiserOptix::setup(const vk::Device& device, const vk::PhysicalDevice& ph
 //--------------------------------------------------------------------------------------------------
 // Initializing OptiX and creating the Denoiser instance
 //
-bool DenoiserOptix::initOptiX(OptixDenoiserInputKind inputKind, OptixPixelFormat pixelFormat, bool hdr)
+bool DenoiserOptix::initOptiX(OptixDenoiserOptions options, OptixPixelFormat pixelFormat, bool hdr)
 {
   CUresult cuRes = cuInit(0);  // Initialize CUDA driver API.
   if(cuRes != CUDA_SUCCESS)
@@ -75,7 +80,7 @@ bool DenoiserOptix::initOptiX(OptixDenoiserInputKind inputKind, OptixPixelFormat
   }
 
   // PERF Use CU_STREAM_NON_BLOCKING if there is any work running in parallel on multiple streams.
-  cuRes = cuStreamCreate(&m_cudaStream, CU_STREAM_DEFAULT);
+  cuRes = cuStreamCreate(&m_cuStream, CU_STREAM_DEFAULT);
   if(cuRes != CUDA_SUCCESS)
   {
     std::cerr << "ERROR: initOptiX() cuStreamCreate() failed: " << cuRes << '\n';
@@ -122,9 +127,9 @@ bool DenoiserOptix::initOptiX(OptixDenoiserInputKind inputKind, OptixPixelFormat
 
 
   // This is to use RGB + Albedo + Normal
-  m_dOptions.inputKind = inputKind;  //OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL;
-  OPTIX_CHECK(optixDenoiserCreate(m_optixDevice, &m_dOptions, &m_denoiser));
-  OPTIX_CHECK(optixDenoiserSetModel(m_denoiser, hdr ? OPTIX_DENOISER_MODEL_KIND_HDR : OPTIX_DENOISER_MODEL_KIND_LDR, nullptr, 0));
+  m_dOptions                       = options;
+  OptixDenoiserModelKind modelKind = hdr ? OPTIX_DENOISER_MODEL_KIND_HDR : OPTIX_DENOISER_MODEL_KIND_LDR;
+  OPTIX_CHECK(optixDenoiserCreate(m_optixDevice, modelKind, &m_dOptions, &m_denoiser));
 
 
   return true;
@@ -141,25 +146,49 @@ void DenoiserOptix::denoiseImageBuffer(uint64_t& fenceValue)
     auto             sizeofPixel      = m_sizeofPixel;
     uint32_t         rowStrideInBytes = sizeofPixel * m_imageSize.width;
 
-    std::vector<OptixImage2D> inputLayer;  // Order: RGB, Albedo, Normal
+    //std::vector<OptixImage2D> inputLayer;  // Order: RGB, Albedo, Normal
 
-    // RGB
-    inputLayer.push_back(OptixImage2D{(CUdeviceptr)m_pixelBufferIn[0].cudaPtr, m_imageSize.width, m_imageSize.height,
-                                      rowStrideInBytes, 0, pixelFormat});
-    // ALBEDO
-    if(m_dOptions.inputKind == OPTIX_DENOISER_INPUT_RGB_ALBEDO || m_dOptions.inputKind == OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL)
+    // Create and set our OptiX layers
+    OptixDenoiserLayer layer = {};
+    // Input
+    layer.input.data               = (CUdeviceptr)m_pixelBufferIn[0].cudaPtr;
+    layer.input.width              = m_imageSize.width;
+    layer.input.height             = m_imageSize.height;
+    layer.input.rowStrideInBytes   = rowStrideInBytes;
+    layer.input.pixelStrideInBytes = m_sizeofPixel;
+    layer.input.format             = pixelFormat;
+
+    // Output
+    layer.output.data               = (CUdeviceptr)m_pixelBufferOut.cudaPtr;
+    layer.output.width              = m_imageSize.width;
+    layer.output.height             = m_imageSize.height;
+    layer.output.rowStrideInBytes   = rowStrideInBytes;
+    layer.output.pixelStrideInBytes = sizeof(float) * 4;
+    layer.output.format             = pixelFormat;
+
+
+    OptixDenoiserGuideLayer guide_layer = {};
+    // albedo
+    if(m_dOptions.guideAlbedo)
     {
-      inputLayer.push_back(OptixImage2D{(CUdeviceptr)m_pixelBufferIn[1].cudaPtr, m_imageSize.width, m_imageSize.height,
-                                        rowStrideInBytes, 0, pixelFormat});
+      guide_layer.albedo.data               = (CUdeviceptr)m_pixelBufferIn[1].cudaPtr;
+      guide_layer.albedo.width              = m_imageSize.width;
+      guide_layer.albedo.height             = m_imageSize.height;
+      guide_layer.albedo.rowStrideInBytes   = rowStrideInBytes;
+      guide_layer.albedo.pixelStrideInBytes = m_sizeofPixel;
+      guide_layer.albedo.format             = pixelFormat;
     }
-    // NORMAL
-    if(m_dOptions.inputKind == OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL)
+
+    // normal
+    if(m_dOptions.guideNormal)
     {
-      inputLayer.push_back(OptixImage2D{(CUdeviceptr)m_pixelBufferIn[2].cudaPtr, m_imageSize.width, m_imageSize.height,
-                                        rowStrideInBytes, 0, pixelFormat});
+      guide_layer.normal.data               = (CUdeviceptr)m_pixelBufferIn[2].cudaPtr;
+      guide_layer.normal.width              = m_imageSize.width;
+      guide_layer.normal.height             = m_imageSize.height;
+      guide_layer.normal.rowStrideInBytes   = rowStrideInBytes;
+      guide_layer.normal.pixelStrideInBytes = m_sizeofPixel;
+      guide_layer.normal.format             = pixelFormat;
     }
-    OptixImage2D outputLayer = {
-        (CUdeviceptr)m_pixelBufferOut.cudaPtr, m_imageSize.width, m_imageSize.height, rowStrideInBytes, 0, pixelFormat};
 
     // Wait from Vulkan (Copy to Buffer)
     cudaExternalSemaphoreWaitParams waitParams{};
@@ -167,28 +196,29 @@ void DenoiserOptix::denoiseImageBuffer(uint64_t& fenceValue)
     waitParams.params.fence.value = fenceValue;
     cudaWaitExternalSemaphoresAsync(&m_semaphore.cu, &waitParams, 1, nullptr);
 
-    CUstream stream = m_cudaStream;
     if(m_dIntensity != 0)
     {
-      OPTIX_CHECK(optixDenoiserComputeIntensity(m_denoiser, stream, inputLayer.data(), m_dIntensity, m_dScratch,
+      OPTIX_CHECK(optixDenoiserComputeIntensity(m_denoiser, m_cuStream, &layer.input, m_dIntensity, m_dScratchBuffer,
                                                 m_dSizes.withoutOverlapScratchSizeInBytes));
     }
 
-    OptixDenoiserParams params{};
-    params.denoiseAlpha = m_denoiseAlpha;
-    params.hdrIntensity = m_dIntensity;
-    params.blendFactor  = 0.0f;  // Fully denoised
+    OptixDenoiserParams denoiserParams{};
+    denoiserParams.denoiseAlpha = m_denoiseAlpha;
+    denoiserParams.hdrIntensity = m_dIntensity;
+    denoiserParams.blendFactor  = 0.0f;  // Fully denoised
 
-    OPTIX_CHECK(optixDenoiserInvoke(m_denoiser, stream, &params, m_dState, m_dSizes.stateSizeInBytes, inputLayer.data(),
-                                    (uint32_t)inputLayer.size(), 0, 0, &outputLayer, m_dScratch,
-                                    m_dSizes.withoutOverlapScratchSizeInBytes));
 
-    CUDA_CHECK(cudaStreamSynchronize(stream));  // Making sure the denoiser is done
+    // Execute the denoiser
+    OPTIX_CHECK(optixDenoiserInvoke(m_denoiser, m_cuStream, &denoiserParams, m_dStateBuffer, m_dSizes.stateSizeInBytes, &guide_layer,
+                                    &layer, 1, 0, 0, m_dScratchBuffer, m_dSizes.withoutOverlapScratchSizeInBytes));
+
+
+    CUDA_CHECK(cudaStreamSynchronize(m_cuStream));  // Making sure the denoiser is done
 
     cudaExternalSemaphoreSignalParams sigParams{};
     sigParams.flags              = 0;
     sigParams.params.fence.value = ++fenceValue;
-    cudaSignalExternalSemaphoresAsync(&m_semaphore.cu, &sigParams, 1, stream);
+    cudaSignalExternalSemaphoresAsync(&m_semaphore.cu, &sigParams, 1, m_cuStream);
   }
   catch(const std::exception& e)
   {
@@ -201,6 +231,10 @@ void DenoiserOptix::denoiseImageBuffer(uint64_t& fenceValue)
 //
 void DenoiserOptix::imageToBuffer(const vk::CommandBuffer& cmdBuf, const std::vector<nvvk::Texture>& imgIn)
 {
+#if USE_COMPUTE
+  copyImageToBuffer(cmdBuf, imgIn);
+#else
+
   LABEL_SCOPE_VK(cmdBuf);
   for(int i = 0; i < static_cast<int>(imgIn.size()); i++)
   {
@@ -218,6 +252,7 @@ void DenoiserOptix::imageToBuffer(const vk::CommandBuffer& cmdBuf, const std::ve
     // Put back the image as it was
     nvvk::cmdBarrierImageLayout(cmdBuf, imgIn[i].image, vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral, subresourceRange);
   }
+#endif
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -241,6 +276,9 @@ void DenoiserOptix::bufferToBuffer(const vk::CommandBuffer& cmdBuf, const std::v
 //
 void DenoiserOptix::bufferToImage(const vk::CommandBuffer& cmdBuf, nvvk::Texture* imgOut)
 {
+#if USE_COMPUTE
+  copyBufferToImage(cmdBuf, imgOut);
+#else
   LABEL_SCOPE_VK(cmdBuf);
   const vk::Buffer& pixelBufferOut = m_pixelBufferOut.bufVk.buffer;
   //const vk::Buffer& pixelBufferOut = m_pixelBufferIn[0].bufVk.buffer;
@@ -258,6 +296,7 @@ void DenoiserOptix::bufferToImage(const vk::CommandBuffer& cmdBuf, nvvk::Texture
 
   // Put back the depth buffer as  it was
   nvvk::cmdBarrierImageLayout(cmdBuf, imgOut->image, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eGeneral, subresourceRange);
+#endif
 }
 
 
@@ -269,17 +308,32 @@ void DenoiserOptix::destroy()
   m_device.destroy(m_semaphore.vk);
   //  m_device.destroy(m_semaphores.vkComplete);
 
+  destroyBuffer();
+  for(auto& d : m_desc)
+  {
+    m_device.destroy(d.pool);
+    m_device.destroy(d.layout);
+  }
+  for(auto& p : m_pipelines)
+  {
+    m_device.destroy(p.p);
+    m_device.destroy(p.layout);
+  }
+}
+
+void DenoiserOptix::destroyBuffer()
+{
   for(auto& p : m_pixelBufferIn)
     p.destroy(m_allocEx);               // Closing Handle
   m_pixelBufferOut.destroy(m_allocEx);  // Closing Handle
 
-  if(m_dState != 0)
+  if(m_dStateBuffer != 0)
   {
-    CUDA_CHECK(cudaFree((void*)m_dState));
+    CUDA_CHECK(cudaFree((void*)m_dStateBuffer));
   }
-  if(m_dScratch != 0)
+  if(m_dScratchBuffer != 0)
   {
-    CUDA_CHECK(cudaFree((void*)m_dScratch));
+    CUDA_CHECK(cudaFree((void*)m_dScratchBuffer));
   }
   if(m_dIntensity != 0)
   {
@@ -314,25 +368,24 @@ void DenoiserOptix::allocateBuffers(const vk::Extent2D& imgSize)
 {
   m_imageSize = imgSize;
 
-  destroy();
-  createSemaphore();
+  destroyBuffer();
 
   vk::DeviceSize bufferSize = static_cast<unsigned long long>(m_imageSize.width) * m_imageSize.height * 4 * sizeof(float);
 
   // Using direct method
-  vk::BufferUsageFlags usage{vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst
+  vk::BufferUsageFlags usage{vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst
                              | vk::BufferUsageFlagBits::eTransferSrc};
   m_pixelBufferIn[0].bufVk = m_allocEx.createBuffer(bufferSize, usage, vk::MemoryPropertyFlagBits::eDeviceLocal);
   createBufferCuda(m_pixelBufferIn[0]);  // Exporting the buffer to Cuda handle and pointers
   NAME_VK(m_pixelBufferIn[0].bufVk.buffer);
 
-  if(m_dOptions.inputKind > OPTIX_DENOISER_INPUT_RGB)
+  if(m_dOptions.guideAlbedo)
   {
     m_pixelBufferIn[1].bufVk = m_allocEx.createBuffer(bufferSize, usage, vk::MemoryPropertyFlagBits::eDeviceLocal);
     createBufferCuda(m_pixelBufferIn[1]);
     NAME_VK(m_pixelBufferIn[1].bufVk.buffer);
   }
-  if(m_dOptions.inputKind == OPTIX_DENOISER_INPUT_RGB_ALBEDO_NORMAL)
+  if(m_dOptions.guideNormal)
   {
     m_pixelBufferIn[2].bufVk = m_allocEx.createBuffer(bufferSize, usage, vk::MemoryPropertyFlagBits::eDeviceLocal);
     createBufferCuda(m_pixelBufferIn[2]);
@@ -349,15 +402,14 @@ void DenoiserOptix::allocateBuffers(const vk::Extent2D& imgSize)
   // Computing the amount of memory needed to do the denoiser
   OPTIX_CHECK(optixDenoiserComputeMemoryResources(m_denoiser, m_imageSize.width, m_imageSize.height, &m_dSizes));
 
-  CUDA_CHECK(cudaMalloc((void**)&m_dState, m_dSizes.stateSizeInBytes));
-  CUDA_CHECK(cudaMalloc((void**)&m_dScratch, m_dSizes.withoutOverlapScratchSizeInBytes));
+  CUDA_CHECK(cudaMalloc((void**)&m_dStateBuffer, m_dSizes.stateSizeInBytes));
+  CUDA_CHECK(cudaMalloc((void**)&m_dScratchBuffer, m_dSizes.withoutOverlapScratchSizeInBytes));
   CUDA_CHECK(cudaMalloc((void**)&m_dMinRGB, 4 * sizeof(float)));
   if(m_pixelFormat == OPTIX_PIXEL_FORMAT_FLOAT3 || m_pixelFormat == OPTIX_PIXEL_FORMAT_FLOAT4)
     CUDA_CHECK(cudaMalloc((void**)&m_dIntensity, sizeof(float)));
 
-  CUstream stream = m_cudaStream;
-  OPTIX_CHECK(optixDenoiserSetup(m_denoiser, stream, m_imageSize.width, m_imageSize.height, m_dState,
-                                 m_dSizes.stateSizeInBytes, m_dScratch, m_dSizes.withoutOverlapScratchSizeInBytes));
+  OPTIX_CHECK(optixDenoiserSetup(m_denoiser, m_cuStream, m_imageSize.width, m_imageSize.height, m_dStateBuffer,
+                                 m_dSizes.stateSizeInBytes, m_dScratchBuffer, m_dSizes.withoutOverlapScratchSizeInBytes));
 }
 
 
@@ -433,12 +485,122 @@ void DenoiserOptix::createSemaphore()
   std::memset(&externalSemaphoreHandleDesc, 0, sizeof(externalSemaphoreHandleDesc));
   externalSemaphoreHandleDesc.flags = 0;
 #ifdef WIN32
-  externalSemaphoreHandleDesc.type  = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32;
+  externalSemaphoreHandleDesc.type                = cudaExternalSemaphoreHandleTypeTimelineSemaphoreWin32;
   externalSemaphoreHandleDesc.handle.win32.handle = (void*)m_semaphore.handle;
 #else
-  externalSemaphoreHandleDesc.type  = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
+  externalSemaphoreHandleDesc.type      = cudaExternalSemaphoreHandleTypeTimelineSemaphoreFd;
   externalSemaphoreHandleDesc.handle.fd = m_semaphore.handle;
 #endif
 
   CUDA_CHECK(cudaImportExternalSemaphore(&m_semaphore.cu, &externalSemaphoreHandleDesc));
+}
+
+extern std::vector<std::string> defaultSearchPaths;
+
+void DenoiserOptix::createCopyPipeline()
+{
+  {
+    constexpr uint32_t SHD = 0;
+    // Descriptor Set
+    nvvk::DescriptorSetBindings bind;
+    bind.addBinding(vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute});
+    bind.addBinding(vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute});
+    bind.addBinding(vk::DescriptorSetLayoutBinding{2, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute});
+    bind.addBinding(vk::DescriptorSetLayoutBinding{3, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute});
+    bind.addBinding(vk::DescriptorSetLayoutBinding{4, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute});
+    bind.addBinding(vk::DescriptorSetLayoutBinding{5, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute});
+
+    CREATE_NAMED_VK(m_desc[SHD].pool, bind.createPool(m_device, 1));
+    CREATE_NAMED_VK(m_desc[SHD].layout, bind.createLayout(m_device));
+    CREATE_NAMED_VK(m_desc[SHD].set, nvvk::allocateDescriptorSet(m_device, m_desc[SHD].pool, m_desc[SHD].layout));
+    // Pipeline
+    CREATE_NAMED_VK(m_pipelines[SHD].layout, m_device.createPipelineLayout({{}, 1, &m_desc[SHD].layout, 0, nullptr}));
+    vk::ComputePipelineCreateInfo info{{}, {}, m_pipelines[SHD].layout};
+    info.stage.stage = vk::ShaderStageFlagBits::eCompute;
+    info.stage.module = nvvk::createShaderModule(m_device, nvh::loadFile("spv/img2buffer.comp.spv", true, defaultSearchPaths));
+    info.stage.pName = "main";
+    CREATE_NAMED_VK(m_pipelines[SHD].p, static_cast<const vk::Pipeline&>(m_device.createComputePipeline({}, info)));
+    m_device.destroy(info.stage.module);
+  }
+
+  {
+    constexpr uint32_t SHD = 1;
+    // Descriptor Set
+    nvvk::DescriptorSetBindings bind;
+    bind.addBinding(vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute});
+    bind.addBinding(vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eCompute});
+
+    CREATE_NAMED_VK(m_desc[SHD].pool, bind.createPool(m_device, 1));
+    CREATE_NAMED_VK(m_desc[SHD].layout, bind.createLayout(m_device));
+    CREATE_NAMED_VK(m_desc[SHD].set, nvvk::allocateDescriptorSet(m_device, m_desc[SHD].pool, m_desc[SHD].layout));
+    // Pipeline
+    CREATE_NAMED_VK(m_pipelines[SHD].layout, m_device.createPipelineLayout({{}, 1, &m_desc[SHD].layout, 0, nullptr}));
+    vk::ComputePipelineCreateInfo info{{}, {}, m_pipelines[SHD].layout};
+    info.stage.stage = vk::ShaderStageFlagBits::eCompute;
+    info.stage.module = nvvk::createShaderModule(m_device, nvh::loadFile("spv/buffer2img.comp.spv", true, defaultSearchPaths));
+    info.stage.pName = "main";
+    CREATE_NAMED_VK(m_pipelines[SHD].p, static_cast<const vk::Pipeline&>(m_device.createComputePipeline({}, info)));
+    m_device.destroy(info.stage.module);
+  }
+}
+
+vk::WriteDescriptorSet makeWrite(const vk::DescriptorSet& set, uint32_t bind, const vk::DescriptorImageInfo* img)
+{
+  return vk::WriteDescriptorSet{set, bind, 0, 1, vk::DescriptorType::eStorageImage, img};
+};
+
+vk::WriteDescriptorSet makeWrite(const vk::DescriptorSet& set, uint32_t bind, const vk::DescriptorBufferInfo* buf)
+{
+  return vk::WriteDescriptorSet{set, bind, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, buf};
+};
+
+//--------------------------------------------------------------------------------------------------
+// Compute version of VkCmdCopyImageToBuffer
+//
+void DenoiserOptix::copyImageToBuffer(const vk::CommandBuffer& cmd, const std::vector<nvvk::Texture>& imgIn)
+{
+  LABEL_SCOPE_VK(cmd);
+  constexpr uint32_t SHD = 0;
+
+  vk::DescriptorImageInfo  img0{imgIn[0].descriptor};
+  vk::DescriptorImageInfo  img1{imgIn[1].descriptor};
+  vk::DescriptorImageInfo  img2{imgIn[2].descriptor};
+  vk::DescriptorBufferInfo buf0{m_pixelBufferIn[0].bufVk.buffer, 0, VK_WHOLE_SIZE};
+  vk::DescriptorBufferInfo buf1{m_pixelBufferIn[1].bufVk.buffer, 0, VK_WHOLE_SIZE};
+  vk::DescriptorBufferInfo buf2{m_pixelBufferIn[2].bufVk.buffer, 0, VK_WHOLE_SIZE};
+
+  std::vector<vk::WriteDescriptorSet> writes;
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 0, &img0));
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 1, &img1));
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 2, &img2));
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 3, &buf0));
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 4, &buf1));
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 5, &buf2));
+  m_device.updateDescriptorSets(writes, nullptr);
+
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, m_pipelines[SHD].layout, 0, m_desc[SHD].set, {});
+  cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_pipelines[SHD].p);
+  cmd.dispatch(m_imageSize.width / 8 + 1, m_imageSize.height / 8 + 1, 1);
+}
+
+
+//--------------------------------------------------------------------------------------------------
+// Compute version of VkCmdCopyBufferToImage
+//
+void DenoiserOptix::copyBufferToImage(const vk::CommandBuffer& cmd, const nvvk::Texture* imgIn)
+{
+  LABEL_SCOPE_VK(cmd);
+  constexpr uint32_t SHD = 1;
+
+  vk::DescriptorImageInfo  img0{imgIn->descriptor};
+  vk::DescriptorBufferInfo buf0{m_pixelBufferOut.bufVk.buffer, 0, VK_WHOLE_SIZE};
+
+  std::vector<vk::WriteDescriptorSet> writes;
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 0, &img0));
+  writes.emplace_back(makeWrite(m_desc[SHD].set, 1, &buf0));
+  m_device.updateDescriptorSets(writes, nullptr);
+
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, m_pipelines[SHD].layout, 0, m_desc[SHD].set, {});
+  cmd.bindPipeline(vk::PipelineBindPoint::eCompute, m_pipelines[SHD].p);
+  cmd.dispatch(m_imageSize.width / 8 + 1, m_imageSize.height / 8 + 1, 1);
 }

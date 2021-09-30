@@ -94,9 +94,13 @@ struct DenoiserOptix
   ~DenoiserOptix() { cuCtxDestroy(m_cudaContext); }
 
   void setup(const vk::Device& device, const vk::PhysicalDevice& physicalDevice, uint32_t queueIndex);
-  bool initOptiX(OptixDenoiserInputKind inputKind, OptixPixelFormat pixelFormat, bool hdr);
+  bool initOptiX(OptixDenoiserOptions options, OptixPixelFormat pixelFormat, bool hdr);
   void denoiseImageBuffer(uint64_t& fenceValue);
+  void createSemaphore();
+
   void destroy();
+  void destroyBuffer();
+
   bool uiSetup();
 
   void allocateBuffers(const vk::Extent2D& imgSize);
@@ -104,6 +108,9 @@ struct DenoiserOptix
   void imageToBuffer(const vk::CommandBuffer& cmdBuf, const std::vector<nvvk::Texture>& imgIn);
   void bufferToBuffer(const vk::CommandBuffer& cmdBuf, const std::vector<nvvk::Buffer>& bufIn);
 
+  void createCopyPipeline();
+  void copyImageToBuffer(const vk::CommandBuffer& cmd, const std::vector<nvvk::Texture>& imgIn);
+  void copyBufferToImage(const vk::CommandBuffer& cmd, const nvvk::Texture* imgIn);
 
   vk::Semaphore getTLSemaphore() { return m_semaphore.vk; }
 
@@ -155,13 +162,12 @@ private:
 #endif
   } m_semaphore;
 
-  void createSemaphore();
 
   OptixDenoiser        m_denoiser{nullptr};
   OptixDenoiserOptions m_dOptions{};
   OptixDenoiserSizes   m_dSizes{};
-  CUdeviceptr          m_dState{0};
-  CUdeviceptr          m_dScratch{0};
+  CUdeviceptr          m_dStateBuffer{0};
+  CUdeviceptr          m_dScratchBuffer{0};
   CUdeviceptr          m_dIntensity{0};
   CUdeviceptr          m_dMinRGB{0};
   CUcontext            m_cudaContext{nullptr};
@@ -170,8 +176,8 @@ private:
   vk::PhysicalDevice m_physicalDevice;
   uint32_t           m_queueIndex;
 
-  nvvk::DedicatedMemoryAllocator m_memAlloc;// Using dedicated allocations for simplicity
-  nvvk::ExportResourceAllocator m_allocEx;  // ResourceAllocator with export flag (interop)
+  nvvk::DedicatedMemoryAllocator m_memAlloc;  // Using dedicated allocations for simplicity
+  nvvk::ExportResourceAllocator  m_allocEx;   // ResourceAllocator with export flag (interop)
 
   vk::Extent2D              m_imageSize;
   std::array<BufferCuda, 3> m_pixelBufferIn;  // RGB, Albedo, normal
@@ -180,7 +186,22 @@ private:
   OptixPixelFormat m_pixelFormat;
   uint32_t         m_sizeofPixel;
   int              m_denoiseAlpha{0};
-  CUstream         m_cudaStream;
+  CUstream         m_cuStream;
 
   nvvk::DebugUtil m_debug;
+
+  struct vkDescritors
+  {
+    vk::DescriptorPool      pool;
+    vk::DescriptorSetLayout layout;
+    vk::DescriptorSet       set;
+  };
+  std::array<vkDescritors, 2> m_desc;
+
+  struct vkPipelines
+  {
+    vk::Pipeline       p;
+    vk::PipelineLayout layout;
+  };
+  std::array<vkPipelines, 2> m_pipelines;
 };

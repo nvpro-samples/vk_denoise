@@ -18,7 +18,6 @@
  */
 
 
-
 #pragma once
 
 #include "nvvk/appbase_vkpp.hpp"
@@ -32,6 +31,7 @@
 #include "pathtrace.hpp"
 #include "raypick_KHR.hpp"
 #include "tonemapper.hpp"
+#include "nvvk/profiler_vk.hpp"
 
 
 //--------------------------------------------------------------------------------------------------
@@ -124,7 +124,7 @@ private:
   nvvk::Buffer m_materialBuffer;
   nvvk::Buffer m_primitiveInfoBuffer;
 
-  nvvk::ResourceAllocatorDma  m_alloc;
+  nvvk::ResourceAllocatorDma m_alloc;
 
   SceneUBO m_sceneUbo;
 
@@ -145,5 +145,6 @@ private:
   // Timeline semaphores
   uint64_t m_fenceValue{0};
 
-  nvvk::DebugUtil m_debug;
+  nvvk::DebugUtil  m_debug;
+  nvvk::ProfilerVK m_profiler;
 };
