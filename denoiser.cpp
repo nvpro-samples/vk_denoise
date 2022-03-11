@@ -519,7 +519,7 @@ void DenoiserOptix::createCopyPipeline()
     info.stage.stage = vk::ShaderStageFlagBits::eCompute;
     info.stage.module = nvvk::createShaderModule(m_device, nvh::loadFile("spv/img2buffer.comp.spv", true, defaultSearchPaths));
     info.stage.pName = "main";
-    CREATE_NAMED_VK(m_pipelines[SHD].p, static_cast<const vk::Pipeline&>(m_device.createComputePipeline({}, info)));
+    CREATE_NAMED_VK(m_pipelines[SHD].p, m_device.createComputePipeline({}, info).value);
     m_device.destroy(info.stage.module);
   }
 
@@ -539,7 +539,7 @@ void DenoiserOptix::createCopyPipeline()
     info.stage.stage = vk::ShaderStageFlagBits::eCompute;
     info.stage.module = nvvk::createShaderModule(m_device, nvh::loadFile("spv/buffer2img.comp.spv", true, defaultSearchPaths));
     info.stage.pName = "main";
-    CREATE_NAMED_VK(m_pipelines[SHD].p, static_cast<const vk::Pipeline&>(m_device.createComputePipeline({}, info)));
+    CREATE_NAMED_VK(m_pipelines[SHD].p, m_device.createComputePipeline({}, info).value);
     m_device.destroy(info.stage.module);
   }
 }

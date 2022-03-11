@@ -47,7 +47,7 @@ void PathTracer::setup(const vk::Device& device, const vk::PhysicalDevice& physi
   m_rtProperties = properties.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
 
   m_rtBuilder.setup(device, allocator, queueIndex);
-  m_sbt.setup(device, queueIndex, allocator, m_rtProperties);
+  m_sbt.setup(device, queueIndex, allocator, static_cast<VkPhysicalDeviceRayTracingPipelinePropertiesKHR>(m_rtProperties));
   m_debug.setup(device);
 }
 
@@ -228,10 +228,10 @@ void PathTracer::createPipeline()
   rayPipelineInfo.setPGroups(m_groups.data());
   rayPipelineInfo.setMaxPipelineRayRecursionDepth(2);
   rayPipelineInfo.setLayout(m_rtPipelineLayout);
-  CREATE_NAMED_VK(m_rtPipeline, static_cast<const vk::Pipeline&>(m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo)));
+  CREATE_NAMED_VK(m_rtPipeline, m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo).value);
 
   // Create the shading binding table
-  m_sbt.create(m_rtPipeline, rayPipelineInfo);
+  m_sbt.create(m_rtPipeline, static_cast<VkRayTracingPipelineCreateInfoKHR>(rayPipelineInfo));
 
   m_device.destroy(raygenSM);
   m_device.destroy(missSM);
