@@ -2,3 +2,4 @@ shaders/*.spv
 /build/*
 autogen/*
 spv/*
+optix_denoiser/_autogen/
