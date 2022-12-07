@@ -61,8 +61,72 @@ layout(push_constant) uniform RtxPushConstant_ { PushConstant pc; };
 // clang-format on
 
 // Includes depending on layout description
-#include "nvvkhl/shaders/shading.glsl"   // envSamplingData
 #include "nvvkhl/shaders/mat_eval.glsl"  // texturesMap
+#include "nvvkhl/shaders/lighting.glsl"  // DirectLight + Visibility contribution
+
+
+void stopPath()
+{
+  payload.hitT = INFINITE;
+}
+
+struct ShadingResult
+{
+  vec3 weight;
+  vec3 radiance;
+  vec3 rayOrigin;
+  vec3 rayDirection;
+};
+
+//-----------------------------------------------------------------------
+//-----------------------------------------------------------------------
+ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
+{
+  ShadingResult result;
+
+  vec3 to_eye = -gl_WorldRayDirectionEXT;
+
+  result.radiance = pbrMat.emissive;  // Emissive material
+
+  // Sampling for the next ray
+  vec3  ray_direction;
+  float pdf      = 0.0F;
+  vec3  rand_val = vec3(rand(payload.seed), rand(payload.seed), rand(payload.seed));
+  vec3  brdf     = pbrSample(pbrMat, to_eye, ray_direction, pdf, rand_val);
+
+  if(dot(hit.nrm, ray_direction) > 0.0F && pdf > 0.0F)
+  {
+    result.weight = brdf / pdf;
+  }
+  else
+  {
+    stopPath();
+  }
+
+  // Next ray
+  result.rayDirection = ray_direction;
+  result.rayOrigin    = offsetRay(hit.pos, dot(ray_direction, hit.nrm) > 0.0F ? hit.nrm : -hit.nrm);
+
+
+  // Light and environment contribution at hit position
+  VisibilityContribution vis_contrib;
+  vis_contrib = environmentLightingContribution(pbrMat, to_eye, hit.nrm, frameInfo.clearColor.xyz, frameInfo.envRotation, payload.seed);
+
+  if(vis_contrib.visible)
+  {
+    // Shadow ray - stop at the first intersection, don't invoke the closest hit shader (fails for transparent objects)
+    uint ray_flag = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsCullBackFacingTrianglesEXT;
+    payload.hitT = 0.0F;
+    traceRayEXT(topLevelAS, ray_flag, 0xFF, 0, 0, 0, result.rayOrigin, 0.001, vis_contrib.lightDir, vis_contrib.lightDist, 0);
+    // If hitting nothing, add light contribution
+    if(payload.hitT == INFINITE)
+      result.radiance += vis_contrib.radiance;
+    payload.hitT = gl_HitTEXT;
+  }
+
+  return result;
+}
+
 
 //-----------------------------------------------------------------------
 //-----------------------------------------------------------------------
@@ -83,7 +147,7 @@ void main()
   PbrMaterial       pbrMat = evaluateMaterial(mat, hit.nrm, hit.tangent, hit.bitangent, hit.uv);
 
   payload.hitT         = gl_HitTEXT;
-  ShadingResult result = shading(pbrMat, hit, hdrTexture, false);
+  ShadingResult result = shading(pbrMat, hit);
 
   payload.weight       = result.weight;
   payload.contrib      = result.radiance;
