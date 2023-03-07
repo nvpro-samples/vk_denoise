@@ -151,6 +151,8 @@ public:
     m_denoiser->createCopyPipeline();
 #endif  // NVP_SUPPORTS_OPTIX7
 
+    VkFenceCreateInfo createInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    vkCreateFence(m_device, &createInfo, nullptr, &m_fence);
 
     m_hdrEnv->loadEnvironment("");
 
@@ -407,6 +409,10 @@ public:
       wait_semaphore.value     = m_fenceValue;
       m_app->addWaitSemaphore(wait_semaphore);
 
+
+      // #OPTIX_D
+      // Need to for the command to be completed
+      NVVK_CHECK(vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, ~0ULL));
 
       // #OPTIX_D
       // Continue rendering pipeline (renewing the command buffer)
@@ -972,11 +978,14 @@ private:
     submits.pSignalSemaphoreInfos    = &signal_semaphore;
 #endif  // _DEBUG
 
-    vkQueueSubmit2(m_app->getContext()->m_queueGCT, 1, &submits, {});
+    vkResetFences(m_device, 1, &m_fence);
+    vkQueueSubmit2(m_app->getContext()->m_queueGCT, 1, &submits, m_fence);
   }
 
   void destroyResources()
   {
+    vkDestroyFence(m_device, m_fence, nullptr);
+
     m_alloc->destroy(m_bFrameInfo);
 
     m_gBuffers.reset();
@@ -1008,6 +1017,7 @@ private:
   std::unique_ptr<nvvk::DescriptorSetContainer> m_sceneSet;                                 // Descriptor set
   // Resources
   nvvk::Buffer m_bFrameInfo;
+  VkFence m_fence;
 
   // Pipeline
   PushConstant      m_pushConst{};  // Information sent to the shader
