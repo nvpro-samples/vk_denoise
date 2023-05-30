@@ -151,7 +151,7 @@ public:
     m_denoiser->createCopyPipeline();
 #endif  // NVP_SUPPORTS_OPTIX7
 
-    VkFenceCreateInfo createInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    VkFenceCreateInfo createInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     vkCreateFence(m_device, &createInfo, nullptr, &m_fence);
 
     m_hdrEnv->loadEnvironment("");
@@ -178,7 +178,11 @@ public:
     m_tonemapper->createComputePipeline();
   }
 
-  void onDetach() override { destroyResources(); }
+  void onDetach() override
+  {
+    vkDeviceWaitIdle(m_device);
+    destroyResources();
+  }
 
   void onResize(uint32_t width, uint32_t height) override
   {
@@ -286,7 +290,8 @@ public:
               "Color multiplier");
 
           reset |= PropertyEditor::entry(
-              "Rotation", [&] { return ImGui::SliderAngle("Rotation", &m_settings.envRotation); }, "Rotating the environment");
+              "Rotation", [&] { return ImGui::SliderAngle("Rotation", &m_settings.envRotation); },
+              "Rotating the environment");
           PropertyEditor::treePop();
         }
         PropertyEditor::end();
@@ -834,11 +839,11 @@ private:
     CameraManip.getLookat(eye, center, up);
     CameraManip.setLookat(eye, world_pos, up, false);
 
-    auto float_as_uint = [](float f) { return *reinterpret_cast<uint32_t*>(&f); };
+    //    auto float_as_uint = [](float f) { return *reinterpret_cast<uint32_t*>(&f); };
 
     // Logging picking info.
     const auto& prim = m_scene->scene().m_primMeshes[pr.instanceCustomIndex];
-    LOGI("Hit(%d): %s, PrimId: %d, ", pr.instanceCustomIndex, prim.name.c_str(), pr.primitiveID, pr.hitT);
+    LOGI("Hit(%d): %s, PrimId: %d", pr.instanceCustomIndex, prim.name.c_str(), pr.primitiveID);
     LOGI("{%3.2f, %3.2f, %3.2f}, Dist: %3.2f\n", world_pos.x, world_pos.y, world_pos.z, pr.hitT);
     LOGI("PrimitiveID: %d\n", pr.primitiveID);
   }
@@ -1017,7 +1022,7 @@ private:
   std::unique_ptr<nvvk::DescriptorSetContainer> m_sceneSet;                                 // Descriptor set
   // Resources
   nvvk::Buffer m_bFrameInfo;
-  VkFence m_fence;
+  VkFence      m_fence;
 
   // Pipeline
   PushConstant      m_pushConst{};  // Information sent to the shader
