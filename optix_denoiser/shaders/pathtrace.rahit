@@ -22,8 +22,8 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable 
-#extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable 
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference2 : require
 
@@ -32,7 +32,7 @@
 #include "payload.glsl"
 #include "nvvkhl/shaders/random.glsl"
 #include "nvvkhl/shaders/dh_scn_desc.h"
-    
+
 
 // clang-format off
 layout(location = 0) rayPayloadInEXT HitPayload payload;
@@ -48,9 +48,6 @@ layout(set = 1, binding = eTextures)  uniform sampler2D texturesMap[]; // all te
 layout(push_constant) uniform RtxPushConstant_ { PushConstant pc; };
 
 // clang-format on
-
-#include "nvvkhl/shaders/mat_eval.glsl"
-
 
 hitAttributeEXT vec2 attribs;
 
@@ -103,9 +100,9 @@ void main()
   PrimMeshInfo  pinfo  = pInfo_.i[gl_InstanceCustomIndexEXT];
 
   // Scene materials
-  uint matIndex             = max(0, pinfo.materialIndex);  // material of primitive mesh
-  Materials materials = Materials(sceneDesc.materialAddress);
-  GltfShadeMaterial mat     = materials.m[matIndex];
+  uint              matIndex  = max(0, pinfo.materialIndex);  // material of primitive mesh
+  Materials         materials = Materials(sceneDesc.materialAddress);
+  GltfShadeMaterial mat       = materials.m[matIndex];
 
   float baseColorAlpha = mat.pbrBaseColorFactor.a;
   if(mat.pbrBaseColorTexture > -1)

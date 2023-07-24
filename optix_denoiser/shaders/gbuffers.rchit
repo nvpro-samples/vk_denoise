@@ -34,6 +34,7 @@
 #include "nvvkhl/shaders/dh_sky.h"
 #include "nvvkhl/shaders/dh_hdr.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
+#include "nvvkhl/shaders/pbr_mat_struct.h"
 
 
 hitAttributeEXT vec2 attribs;
@@ -52,7 +53,7 @@ layout(set = 1, binding = eTextures)  uniform sampler2D texturesMap[]; // all te
 // clang-format on
 
 
-#include "nvvkhl/shaders/mat_eval.glsl"
+#include "nvvkhl/shaders/pbr_mat_eval.glsl"
 #include "compress.glsl"
 
 //-----------------------------------------------------------------------

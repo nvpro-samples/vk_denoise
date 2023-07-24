@@ -35,7 +35,7 @@
 #include "nvvkhl/shaders/dh_hdr.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
 #include "nvvkhl/shaders/random.glsl"
-#include "nvvkhl/shaders/pbr_eval.glsl"
+#include "nvvkhl/shaders/bsdf_functions.h"
 
 
 hitAttributeEXT vec2 attribs;
@@ -61,8 +61,8 @@ layout(push_constant) uniform RtxPushConstant_ { PushConstant pc; };
 // clang-format on
 
 // Includes depending on layout description
-#include "nvvkhl/shaders/mat_eval.glsl"  // texturesMap
-#include "nvvkhl/shaders/lighting.glsl"  // DirectLight + Visibility contribution
+#include "nvvkhl/shaders/pbr_mat_eval.glsl"  // texturesMap
+#include "nvvkhl/shaders/hdr_env_sampling.glsl"
 
 
 void stopPath()
@@ -78,6 +78,29 @@ struct ShadingResult
   vec3 rayDirection;
 };
 
+// --------------------------------------------------------------------
+// Sampling the Sun or the HDR
+// - Returns
+//      The contribution divided by PDF
+//      The direction to the light source
+//      The PDF
+//
+vec3 sampleLights(in HitState state, inout uint seed, out vec3 dirToLight, out float lightPdf)
+{
+  vec3 rand_val     = vec3(rand(seed), rand(seed), rand(seed));
+  vec4 radiance_pdf = environmentSample(hdrTexture, rand_val, dirToLight);
+  vec3 radiance     = radiance_pdf.xyz;
+  lightPdf          = radiance_pdf.w;
+
+  // Apply rotation and environment intensity
+  dirToLight = rotate(dirToLight, vec3(0, 1, 0), frameInfo.envRotation);
+  radiance *= frameInfo.clearColor.xyz;
+
+  // Return radiance over pdf
+  return radiance / lightPdf;
+}
+
+
 //-----------------------------------------------------------------------
 //-----------------------------------------------------------------------
 ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
@@ -88,39 +111,67 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
 
   result.radiance = pbrMat.emissive;  // Emissive material
 
-  // Sampling for the next ray
-  vec3  ray_direction;
-  float pdf      = 0.0F;
-  vec3  rand_val = vec3(rand(payload.seed), rand(payload.seed), rand(payload.seed));
-  vec3  brdf     = pbrSample(pbrMat, to_eye, ray_direction, pdf, rand_val);
 
-  if(dot(hit.nrm, ray_direction) > 0.0F && pdf > 0.0F)
+  // Light contribution; can be environment or punctual lights
+  vec3  contribution         = vec3(0);
+  vec3  dirToLight           = vec3(0);
+  float lightPdf             = 0.F;
+  vec3  lightRadianceOverPdf = sampleLights(hit, payload.seed, dirToLight, lightPdf);
+
+  const bool nextEventValid = (dot(dirToLight, hit.geonrm) > 0.0f) && lightPdf != 0.0f;
+
+  // Evaluate BSDF
+  if(nextEventValid)
   {
-    result.weight = brdf / pdf;
+    BsdfEvaluateData evalData;
+    evalData.ior1 = vec3(1.0F);
+    evalData.ior2 = vec3(1.0F);
+    evalData.k1   = -gl_WorldRayDirectionEXT;
+    evalData.k2   = dirToLight;
+
+    bsdfEvaluate(evalData, pbrMat);
+
+    if(evalData.pdf > 0.0)
+    {
+      const float mis_weight = lightPdf / (lightPdf + evalData.pdf);
+
+      // sample weight
+      const vec3 w = lightRadianceOverPdf * mis_weight;
+      contribution += w * evalData.bsdf_diffuse;
+      contribution += w * evalData.bsdf_glossy;
+    }
   }
-  else
+
+  // Sample BSDF
   {
-    stopPath();
+    BsdfSampleData sampleData;
+    sampleData.ior1 = vec3(1.0F);                // IOR current medium
+    sampleData.ior2 = vec3(1.0F);                // IOR other side
+    sampleData.k1   = -gl_WorldRayDirectionEXT;  // outgoing direction
+    sampleData.xi   = vec4(rand(payload.seed), rand(payload.seed), rand(payload.seed), rand(payload.seed));
+    bsdfSample(sampleData, pbrMat);
+
+    result.weight       = sampleData.bsdf_over_pdf;
+    result.rayDirection = sampleData.k2;
+    vec3 offsetDir = dot(result.rayDirection, hit.geonrm) > 0 ? hit.geonrm : -hit.geonrm;
+    result.rayOrigin = offsetRay(hit.pos, offsetDir);
+
+    if(sampleData.event_type == BSDF_EVENT_ABSORB)
+    {
+      stopPath();
+      return result;  // Need to add the contribution ?
+    }
   }
 
-  // Next ray
-  result.rayDirection = ray_direction;
-  result.rayOrigin    = offsetRay(hit.pos, dot(ray_direction, hit.nrm) > 0.0F ? hit.nrm : -hit.nrm);
-
-
-  // Light and environment contribution at hit position
-  VisibilityContribution vis_contrib;
-  vis_contrib = environmentLightingContribution(pbrMat, to_eye, hit.nrm, frameInfo.clearColor.xyz, frameInfo.envRotation, payload.seed);
-
-  if(vis_contrib.visible)
+  if(nextEventValid)
   {
     // Shadow ray - stop at the first intersection, don't invoke the closest hit shader (fails for transparent objects)
     uint ray_flag = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT | gl_RayFlagsCullBackFacingTrianglesEXT;
     payload.hitT = 0.0F;
-    traceRayEXT(topLevelAS, ray_flag, 0xFF, 0, 0, 0, result.rayOrigin, 0.001, vis_contrib.lightDir, vis_contrib.lightDist, 0);
+    traceRayEXT(topLevelAS, ray_flag, 0xFF, 0, 0, 0, result.rayOrigin, 0.001, dirToLight, INFINITE, 0);
     // If hitting nothing, add light contribution
     if(payload.hitT == INFINITE)
-      result.radiance += vis_contrib.radiance;
+      result.radiance += contribution;
     payload.hitT = gl_HitTEXT;
   }
 
