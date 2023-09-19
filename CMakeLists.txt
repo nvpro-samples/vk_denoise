@@ -26,6 +26,7 @@ else()
   message(FATAL_ERROR "could not find base directory, please set BASE_DIRECTORY to folder containing nvpro_core")
 endif()
 
+_add_project_definitions(${PROJECT_NAME})
 set(NVPRO_CORE_DIR ${BASE_DIRECTORY}/nvpro_core)
 
 if(MSVC)
