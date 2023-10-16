@@ -519,6 +519,7 @@ private:
   {
     auto& d = m_rtxSet;
     d->deinit();
+    d->init(m_device);
 
     // This descriptor set, holds the top level acceleration structure and the output image
     d->addBinding(RtxBindings::eTlas, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
@@ -536,6 +537,7 @@ private:
   {
     auto& d = m_sceneSet;
     d->deinit();
+    d->init(m_device);
 
     // This descriptor set, holds the top level acceleration structure and the output image
     d->addBinding(SceneBindings::eFrameInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL);
