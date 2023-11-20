@@ -153,8 +153,8 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
 
     result.weight       = sampleData.bsdf_over_pdf;
     result.rayDirection = sampleData.k2;
-    vec3 offsetDir = dot(result.rayDirection, hit.geonrm) > 0 ? hit.geonrm : -hit.geonrm;
-    result.rayOrigin = offsetRay(hit.pos, offsetDir);
+    vec3 offsetDir      = dot(result.rayDirection, hit.geonrm) > 0 ? hit.geonrm : -hit.geonrm;
+    result.rayOrigin    = offsetRay(hit.pos, offsetDir);
 
     if(sampleData.event_type == BSDF_EVENT_ABSORB)
     {

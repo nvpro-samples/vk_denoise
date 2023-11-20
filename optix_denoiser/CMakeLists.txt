@@ -7,20 +7,35 @@ message(STATUS "Processing Project ${PROJECT_NAME}:")
 
 file(GLOB SOURCE_FILES src/*.cpp src/*.hpp src/*.h)
 
-_add_package_Cuda()
+# Finding Cuda Toolkit
+find_package(CUDAToolkit REQUIRED)
+
+#_add_package_Cuda()
 _add_package_Optix7()
+_add_package_VulkanSDK()
+_add_package_ImGUI()
+_add_nvpro_core_lib()
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${COMMON_SOURCE_FILES} ${PACKAGE_SOURCE_FILES})
 
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 20)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD_REQUIRED ON)
+
 target_include_directories(${PROJECT_NAME} PRIVATE ${SAMPLES_COMMON_DIR} ${ADVANCE_DIR})
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-    PROJECT_NAME="${PROJECT_NAME}"
-    IMGUI_DEFINE_MATH_OPERATORS
-    )
+target_compile_definitions(${PROJECT_NAME} PRIVATE IMGUI_DEFINE_MATH_OPERATORS)
 source_group("Other"  FILES ${COMMON_SOURCE_FILES} ${PACKAGE_SOURCE_FILES})
 
 # Adding libraries + Cuda library (LIBRARIES_OPTIMIZED)
-target_link_libraries (${PROJECT_NAME} ${PLATFORM_LIBRARIES} ${LIBRARIES_OPTIMIZED} nvpro_core)
+target_link_libraries (${PROJECT_NAME} 
+        CUDA::cudart 
+        CUDA::cuda_driver
+        # All nvpro-core dependencies  
+        nvpro_core                       #  "                 " 
+        optimized ${LIBRARIES_OPTIMIZED} #  "                 " 
+        debug ${LIBRARIES_DEBUG}         #  "                 " 
+        ${PLATFORM_LIBRARIES}            #  "                 " 
+        ${UNIXLINKLIBS}                  #  "                 " 
+        )
 
 if(MSVC)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
@@ -42,7 +57,7 @@ compile_glsl(
     SOURCE_FILES ${SHD_SRC}
     HEADER_FILES ${SHD_HDR}
     DST "${CMAKE_CURRENT_SOURCE_DIR}/_autogen" 
-    VULKAN_TARGET "vulkan1.2"
+    VULKAN_TARGET "vulkan1.3"
     HEADER ON
     DEPENDENCY ${VULKAN_BUILD_DEPENDENCIES}
     FLAGS -I${SHD_DIR} -I${NVPRO_CORE_DIR} -g

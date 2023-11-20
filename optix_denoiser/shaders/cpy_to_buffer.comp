@@ -30,7 +30,7 @@ layout(set = 0, binding = 2) uniform image2D g_normal;
 layout(set = 0, binding = 3) buffer _buf0 { vec4 g_buffer0[]; };
 layout(set = 0, binding = 4) buffer _buf1 { vec4 g_buffer1[]; };
 layout(set = 0, binding = 5) buffer _buf2 { vec4 g_buffer2[]; };
-  // clang-format on
+// clang-format on
 
 
 #define GRID_SIZE 16

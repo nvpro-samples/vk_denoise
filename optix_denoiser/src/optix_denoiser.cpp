@@ -101,23 +101,22 @@ class OptixDenoiserEngine : public nvvkhl::IAppElement
 
   struct Settings
   {
-    int           maxFrames{200000};
-    int           maxSamples{1};
-    int           maxDepth{5};
-    bool          showAxis{true};
-    nvmath::vec4f clearColor{1.F};
-    float         envRotation{0.F};
-    bool          denoiseApply{true};
-    bool          denoiseFirstFrame{false};
-    int           denoiseEveryNFrames{100};
+    int       maxFrames{200000};
+    int       maxSamples{1};
+    int       maxDepth{5};
+    bool      showAxis{true};
+    glm::vec4 clearColor{1.F};
+    float     envRotation{0.F};
+    bool      denoiseApply{true};
+    bool      denoiseFirstFrame{false};
+    int       denoiseEveryNFrames{100};
   } m_settings;
 
 public:
   OptixDenoiserEngine()
   {
-    m_frameInfo.nbLights     = 1;
     m_frameInfo.maxLuminance = 10.0F;
-    m_frameInfo.clearColor   = nvmath::vec4f(1.F);
+    m_frameInfo.clearColor   = glm::vec4(1.F);
   };
 
   ~OptixDenoiserEngine() override = default;
@@ -290,8 +289,7 @@ public:
               "Color multiplier");
 
           reset |= PropertyEditor::entry(
-              "Rotation", [&] { return ImGui::SliderAngle("Rotation", &m_settings.envRotation); },
-              "Rotating the environment");
+              "Rotation", [&] { return ImGui::SliderAngle("Rotation", &m_settings.envRotation); }, "Rotating the environment");
           PropertyEditor::treePop();
         }
         PropertyEditor::end();
@@ -308,6 +306,7 @@ public:
         ImGui::Checkbox("Denoise", &m_settings.denoiseApply);
         ImGui::Checkbox("First Frame", &m_settings.denoiseFirstFrame);
         ImGui::SliderInt("N-frames", &m_settings.denoiseEveryNFrames, 1, 500);
+        ImGui::SliderFloat("Blend", &m_blendFactor, 0.f, 1.0f);
         int denoised_frame = -1;
         if(m_settings.denoiseApply)
         {
@@ -320,18 +319,15 @@ public:
         }
         ImGui::Text("Denoised Frame: %d", denoised_frame);
 
-        ImGui::Image(m_gBuffers->getDescriptorSet(eGBufAlbedo), {150, 150});
-        ImGui::SameLine();
+        ImVec2 tumbnailSize = {150 * m_gBuffers->getAspectRatio(), 150};
         ImGui::Text("Albedo");
-        ImGui::Image(m_gBuffers->getDescriptorSet(eGBufNormal), {150, 150});
-        ImGui::SameLine();
+        ImGui::Image(m_gBuffers->getDescriptorSet(eGBufAlbedo), tumbnailSize);
         ImGui::Text("Normal");
-        ImGui::Image(m_gBuffers->getDescriptorSet(eGBufResult), {150, 150});
-        ImGui::SameLine();
+        ImGui::Image(m_gBuffers->getDescriptorSet(eGBufNormal), tumbnailSize);
         ImGui::Text("Result");
-        ImGui::Image(m_gBuffers->getDescriptorSet(eGbufDenoised), {150, 150});
-        ImGui::SameLine();
+        ImGui::Image(m_gBuffers->getDescriptorSet(eGBufResult), tumbnailSize);
         ImGui::Text("Denoised");
+        ImGui::Image(m_gBuffers->getDescriptorSet(eGbufDenoised), tumbnailSize);
       }
 
       ImGui::End();
@@ -367,20 +363,20 @@ public:
     auto scope_dbg = m_dutil->DBG_SCOPE(cmd);
 
     // Get camera info
-    float         view_aspect_ratio = m_viewSize.x / m_viewSize.y;
-    nvmath::vec3f eye;
-    nvmath::vec3f center;
-    nvmath::vec3f up;
+    float     view_aspect_ratio = m_viewSize.x / m_viewSize.y;
+    glm::vec3 eye;
+    glm::vec3 center;
+    glm::vec3 up;
     CameraManip.getLookat(eye, center, up);
 
     // Update Frame buffer uniform buffer
-    const auto& clip        = CameraManip.getClipPlanes();
-    m_frameInfo.view        = CameraManip.getMatrix();
-    m_frameInfo.proj        = nvmath::perspectiveVK(CameraManip.getFov(), view_aspect_ratio, clip.x, clip.y);
-    m_frameInfo.projInv     = nvmath::inverse(m_frameInfo.proj);
-    m_frameInfo.viewInv     = nvmath::inverse(m_frameInfo.view);
+    const auto& clip = CameraManip.getClipPlanes();
+    m_frameInfo.view = CameraManip.getMatrix();
+    m_frameInfo.proj = glm::perspectiveRH_ZO(glm::radians(CameraManip.getFov()), view_aspect_ratio, clip.x, clip.y);
+    m_frameInfo.proj[1][1] *= -1;
+    m_frameInfo.projInv     = glm::inverse(m_frameInfo.proj);
+    m_frameInfo.viewInv     = glm::inverse(m_frameInfo.view);
     m_frameInfo.camPos      = eye;
-    m_frameInfo.nbLights    = 0;
     m_frameInfo.envRotation = m_settings.envRotation;
     m_frameInfo.clearColor  = m_settings.clearColor;
     vkCmdUpdateBuffer(cmd, m_bFrameInfo.buffer, 0, sizeof(FrameInfo), &m_frameInfo);
@@ -475,7 +471,7 @@ private:
   }
 
 
-  void createGbuffers(const nvmath::vec2f& size)
+  void createGbuffers(const glm::vec2& size)
   {
     static auto depth_format = nvvk::findDepthFormat(m_app->getPhysicalDevice());  // Not all depth are supported
 
@@ -486,8 +482,8 @@ private:
     std::vector<VkFormat> color_buffers = {
         VK_FORMAT_R8G8B8A8_UNORM,       // LDR
         VK_FORMAT_R32G32B32A32_SFLOAT,  // Result
-        VK_FORMAT_R8G8B8A8_UNORM,       // Albedo
-        VK_FORMAT_R8G8B8A8_UNORM,       // Normal
+        VK_FORMAT_R32G32B32A32_SFLOAT,  // Albedo
+        VK_FORMAT_R32G32B32A32_SFLOAT,  // Normal
         VK_FORMAT_R32G32B32A32_SFLOAT,  // Denoised
     };
 
@@ -739,13 +735,13 @@ private:
   //
   bool updateFrame()
   {
-    static nvmath::mat4f ref_cam_matrix;
-    static float         ref_fov{CameraManip.getFov()};
+    static glm::mat4 ref_cam_matrix;
+    static float     ref_fov{CameraManip.getFov()};
 
     const auto& m   = CameraManip.getMatrix();
     const auto  fov = CameraManip.getFov();
 
-    if(memcmp(&ref_cam_matrix.a00, &m.a00, sizeof(nvmath::mat4f)) != 0 || ref_fov != fov)
+    if(ref_cam_matrix != m || ref_fov != fov)
     {
       resetFrame();
       ref_cam_matrix = m;
@@ -806,14 +802,15 @@ private:
 
     // Finding current camera matrices
     const auto& view = CameraManip.getMatrix();
-    auto        proj = nvmath::perspectiveVK(CameraManip.getFov(), aspect_ratio, 0.1F, 1000.0F);
+    auto        proj = glm::perspectiveRH_ZO(glm::radians(CameraManip.getFov()), aspect_ratio, 0.1F, 1000.0F);
+    proj[1][1] *= -1;
 
     // Setting up the data to do picking
     nvvk::RayPickerKHR::PickInfo pick_info;
     pick_info.pickX          = local_mouse_pos.x;
     pick_info.pickY          = local_mouse_pos.y;
-    pick_info.modelViewInv   = nvmath::invert(view);
-    pick_info.perspectiveInv = nvmath::invert(proj);
+    pick_info.modelViewInv   = glm::inverse(view);
+    pick_info.perspectiveInv = glm::inverse(proj);
 
     // Run and wait for result
     m_picker->run(cmd, pick_info);
@@ -834,10 +831,10 @@ private:
     }
 
     // Find where the hit point is and set the interest position
-    nvmath::vec3f world_pos = nvmath::vec3f(pr.worldRayOrigin + pr.worldRayDirection * pr.hitT);
-    nvmath::vec3f eye;
-    nvmath::vec3f center;
-    nvmath::vec3f up;
+    glm::vec3 world_pos = glm::vec3(pr.worldRayOrigin + pr.worldRayDirection * pr.hitT);
+    glm::vec3 eye;
+    glm::vec3 center;
+    glm::vec3 up;
     CameraManip.getLookat(eye, center, up);
     CameraManip.setLookat(eye, world_pos, up, false);
 
@@ -886,12 +883,13 @@ private:
     vkCmdTraceRaysKHR(cmd, regions.data(), &regions[1], &regions[2], &regions[3], size.width, size.height, 1);
 
     // Making sure the rendered image is ready to be used
-    auto* out_image = m_gBuffers->getColorImage(eGBufResult);
-    auto image_memory_barrier = nvvk::makeImageMemoryBarrier(out_image, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-                                                             VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
     {
       auto scope_dbg2 = m_dutil->scopeLabel(cmd, "barrier");
-      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+
+      auto image_memory_barrier =
+          nvvk::makeImageMemoryBarrier(m_gBuffers->getColorImage(eGBufResult), VK_ACCESS_SHADER_READ_BIT,
+                                       VK_ACCESS_SHADER_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
                            nullptr, 0, nullptr, 1, &image_memory_barrier);
     }
   }
@@ -946,7 +944,7 @@ private:
   void denoiseImage()
   {
 #ifdef NVP_SUPPORTS_OPTIX7
-    m_denoiser->denoiseImageBuffer(m_fenceValue);
+    m_denoiser->denoiseImageBuffer(m_fenceValue, m_blendFactor);
 #endif  // NVP_SUPPORTS_OPTIX7
   }
 
@@ -1016,7 +1014,7 @@ private:
   std::unique_ptr<nvvk::DebugUtil> m_dutil;
   std::unique_ptr<AllocVma>        m_alloc;
 
-  nvmath::vec2f                                 m_viewSize   = {1, 1};
+  glm::vec2                                     m_viewSize   = {1, 1};
   VkClearColorValue                             m_clearColor = {{0.3F, 0.3F, 0.3F, 1.0F}};  // Clear color
   VkDevice                                      m_device     = VK_NULL_HANDLE;              // Convenient
   std::unique_ptr<nvvkhl::GBuffer>              m_gBuffers;                                 // G-Buffers: color + depth
@@ -1051,6 +1049,7 @@ private:
   std::unique_ptr<DenoiserOptix> m_denoiser;
   uint64_t                       m_fenceValue{0U};
 #endif  // NVP_SUPPORTS_OPTIX7
+  float m_blendFactor = 0.0f;
 };
 
 }  // namespace nvvkhl

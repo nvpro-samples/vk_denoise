@@ -2,9 +2,9 @@
 #define HOST_DEVICE_H
 
 #ifdef __cplusplus
-using mat4 = nvmath::mat4f;
-using vec4 = nvmath::vec4f;
-using vec3 = nvmath::vec3f;
+using mat4 = glm::mat4;
+using vec4 = glm::vec4;
+using vec3 = glm::vec3;
 #endif  // __cplusplus
 
 #include "nvvkhl/shaders/dh_lighting.h"
@@ -28,10 +28,8 @@ struct FrameInfo
   mat4  view;
   mat4  projInv;
   mat4  viewInv;
-  Light light[MAX_NB_LIGHTS];
   vec4  clearColor;
   vec3  camPos;
-  int   nbLights;
   float envRotation;
   float maxLuminance;
 };

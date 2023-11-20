@@ -34,11 +34,6 @@ if(MSVC)
     add_definitions(/wd26451)  # Arithmetic overflow, casting 4 byte value to 8 byte value
 endif()
 
-#--------------------------------------------------------------------------------------------------
-# Package shared by all projects
-_add_package_VulkanSDK()
-_add_package_ImGUI()
-_add_nvpro_core_lib()
 
 
 #--------------------------------------------------------------------------------------------------

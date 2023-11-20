@@ -96,11 +96,11 @@ struct DenoiserOptix
 
   DenoiserOptix() = default;
   explicit DenoiserOptix(nvvk::Context* ctx);
-  ~DenoiserOptix() { cuCtxDestroy(m_cudaContext); }
+  ~DenoiserOptix() = default;
 
   void setup(const VkDevice& device, const VkPhysicalDevice& physicalDevice, uint32_t queueIndex);
   bool initOptiX(const OptixDenoiserOptions& options, OptixPixelFormat pixelFormat, bool hdr);
-  void denoiseImageBuffer(uint64_t& fenceValue);
+  void denoiseImageBuffer(uint64_t& fenceValue, float blendFactor = 0.0f);
   void createSemaphore();
 
   void destroy();
@@ -111,7 +111,6 @@ struct DenoiserOptix
   void allocateBuffers(const VkExtent2D& imgSize);
   void bufferToImage(const VkCommandBuffer& cmdBuf, nvvk::Texture* imgOut);
   void imageToBuffer(const VkCommandBuffer& cmdBuf, const std::vector<nvvk::Texture>& imgIn);
-  void bufferToBuffer(const VkCommandBuffer& cmdBuf, const std::vector<nvvk::Buffer>& bufIn);
 
   void createCopyPipeline();
   void copyImageToBuffer(const VkCommandBuffer& cmd, const std::vector<nvvk::Texture>& imgIn);
@@ -168,34 +167,40 @@ private:
 #endif
   } m_semaphore;
 
+  OptixDeviceContext     m_optixDevice     = {};
+  OptixDenoiser          m_denoiser        = {};
+  OptixDenoiserOptions   m_denoiserOptions = {};
+  OptixDenoiserSizes     m_denoiserSizes   = {};
+  OptixDenoiserAlphaMode m_denoiserAlpha   = {OPTIX_DENOISER_ALPHA_MODE_COPY};
+  OptixPixelFormat       m_pixelFormat     = {};
 
-  OptixDenoiser        m_denoiser{nullptr};
-  OptixDenoiserOptions m_dOptions{};
-  OptixDenoiserSizes   m_dSizes{};
-  CUdeviceptr          m_dStateBuffer{0};
-  CUdeviceptr          m_dScratchBuffer{0};
-  CUdeviceptr          m_dIntensity{0};
-  CUdeviceptr          m_dMinRGB{0};
-  CUcontext            m_cudaContext{nullptr};
+  CUdeviceptr m_dStateBuffer   = {};
+  CUdeviceptr m_dScratchBuffer = {};
+  CUdeviceptr m_dIntensity     = {};
+  CUdeviceptr m_dMinRGB        = {};
+  CUstream    m_cuStream       = {};
 
-  VkDevice         m_device{};
-  VkPhysicalDevice m_physicalDevice{};
-  uint32_t         m_queueIndex{};
+  VkExtent2D m_imageSize   = {};
+  uint32_t   m_sizeofPixel = {};
+
+  // Vulkan
+  VkDevice         m_device         = {};
+  VkPhysicalDevice m_physicalDevice = {};
+  uint32_t         m_queueIndex     = {};
 
   nvvk::DedicatedMemoryAllocator m_memAlloc;  // Using dedicated allocations for simplicity
   nvvk::ExportResourceAllocator  m_allocEx;   // ResourceAllocator with export flag (interop)
 
-  VkExtent2D                m_imageSize{};
   std::array<BufferCuda, 3> m_pixelBufferIn;  // RGB, Albedo, normal
-  BufferCuda                m_pixelBufferOut;
-
-  OptixPixelFormat       m_pixelFormat;
-  uint32_t               m_sizeofPixel{};
-  OptixDenoiserAlphaMode m_denoiseAlpha{OPTIX_DENOISER_ALPHA_MODE_COPY};
-  CUstream               m_cuStream{};
+  BufferCuda                m_pixelBufferOut; // Result of the denoiser
 
   nvvk::DebugUtil m_debug;
 
+  enum  // The two compute shaders
+  {
+    eCpyToBuffer,
+    eCpyToImage
+  };
   struct VulkanDescritors
   {
     VkDescriptorPool      pool;
