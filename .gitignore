@@ -3,3 +3,4 @@ shaders/*.spv
 autogen/*
 spv/*
 optix_denoiser/_autogen/
+/_install

@@ -48,6 +48,7 @@
 #define VMA_IMPLEMENTATION
 #include "imgui/imgui_camera_widget.h"
 #include "imgui/imgui_helper.h"
+#include "imgui/imgui_axis.hpp"
 #include "nvh/fileoperations.hpp"
 #include "nvp/nvpsystem.hpp"
 #include "nvvk/dynamicrendering_vk.hpp"
@@ -81,9 +82,12 @@
 #include "_autogen/pathtrace.rahit.h"
 #include "_autogen/gbuffers.rchit.h"
 #include "_autogen/gbuffers.rmiss.h"
+#include "nvvkhl/element_benchmark_parameters.hpp"
 
 
-std::shared_ptr<nvvkhl::ElementCamera> g_elem_camera;
+std::shared_ptr<nvvkhl::ElementCamera>              g_elemCamera;
+std::shared_ptr<nvvkhl::ElementBenchmarkParameters> g_elemBenchmark;
+
 
 namespace nvvkhl {
 //////////////////////////////////////////////////////////////////////////
@@ -134,10 +138,12 @@ public:
     m_tonemapper = std::make_unique<TonemapperPostProcess>(m_app->getContext().get(), m_alloc.get());
     m_sbt        = std::make_unique<nvvk::SBTWrapper>();
     m_picker     = std::make_unique<nvvk::RayPickerKHR>(m_app->getContext().get(), m_alloc.get());
-    m_vkAxis     = std::make_unique<nvvk::AxisVK>();
     m_hdrEnv     = std::make_unique<HdrEnv>(m_app->getContext().get(), m_alloc.get());
     m_rtxSet     = std::make_unique<nvvk::DescriptorSetContainer>(m_device);
     m_sceneSet   = std::make_unique<nvvk::DescriptorSetContainer>(m_device);
+
+    // Override the way benchmark count frames, to only use valid ones
+    g_elemBenchmark->setCurrentFrame([&] { return m_frame; });
 
 #ifdef NVP_SUPPORTS_OPTIX7
     m_denoiser = std::make_unique<DenoiserOptix>(m_app->getContext().get());
@@ -148,10 +154,11 @@ public:
     m_denoiser->initOptiX(d_options, OPTIX_PIXEL_FORMAT_FLOAT4, true);
     m_denoiser->createSemaphore();
     m_denoiser->createCopyPipeline();
+#else
+    m_settings.denoiseApply = false;
+    LOGE("OptiX is not supported");
 #endif  // NVP_SUPPORTS_OPTIX7
 
-    VkFenceCreateInfo createInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    vkCreateFence(m_device, &createInfo, nullptr, &m_fence);
 
     m_hdrEnv->loadEnvironment("");
 
@@ -165,14 +172,9 @@ public:
     m_sbt->setup(m_app->getDevice(), gct_queue_index, m_alloc.get(), rt_prop);
 
     // Create resources
+    createCommandBuffers();
     createGbuffers(m_viewSize);
     createVulkanBuffers();
-
-    // Axis in the bottom left corner
-    nvvk::AxisVK::CreateAxisInfo ainfo;
-    ainfo.colorFormat = {m_gBuffers->getColorFormat(0)};
-    ainfo.depthFormat = m_gBuffers->getDepthFormat();
-    m_vkAxis->init(m_device, ainfo);
 
     m_tonemapper->createComputePipeline();
   }
@@ -314,7 +316,7 @@ public:
             denoised_frame = m_settings.maxFrames;
           else if(m_settings.denoiseFirstFrame && (m_frame < m_settings.denoiseEveryNFrames))
             denoised_frame = 0;
-          else if(m_frame > m_settings.denoiseEveryNFrames)
+          else if(m_frame >= m_settings.denoiseEveryNFrames)
             denoised_frame = (m_frame / m_settings.denoiseEveryNFrames) * m_settings.denoiseEveryNFrames;
         }
         ImGui::Text("Denoised Frame: %d", denoised_frame);
@@ -348,17 +350,35 @@ public:
 
       // Display the G-Buffer image
       ImGui::Image(m_gBuffers->getDescriptorSet(eGBufLdr), ImGui::GetContentRegionAvail());
+
+      if(m_settings.showAxis)
+      {  // Display orientation axis at the bottom left corner of the window
+        const float axisSize = 25.F;
+        ImVec2      pos      = ImGui::GetWindowPos();
+        pos.y += ImGui::GetWindowSize().y;
+        pos += ImVec2(axisSize * 1.1F, -axisSize * 1.1F) * ImGui::GetWindowDpiScale();  // Offset
+        ImGuiH::Axis(pos, CameraManip.getMatrix(), axisSize);
+      }
+
       ImGui::End();
       ImGui::PopStyleVar();
     }
   }
 
-  void onRender(VkCommandBuffer cmd) override
+  void onRender(VkCommandBuffer /*cmd*/) override
   {
-    if(!m_scene->valid() || !updateFrame())
-    {
+    if(!m_scene->valid())
       return;
-    }
+    // Update the frame only if the scene is valid
+    if(!updateFrame())
+      return;
+
+    // Using local command buffer for the frame
+    const CommandFrame& commandFrame = m_commandFrames[m_app->getFrameCycleIndex()];
+    VkCommandBuffer     cmd          = commandFrame.cmdBuffer[0];
+    vkResetCommandPool(m_device, commandFrame.cmdPool, 0);
+    VkCommandBufferBeginInfo begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, 0, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    vkBeginCommandBuffer(cmd, &begin_info);
 
     auto scope_dbg = m_dutil->DBG_SCOPE(cmd);
 
@@ -394,31 +414,50 @@ public:
     {
       // Submit raytracing and signal
       copyImagesToCuda(cmd);
-      vkEndCommandBuffer(cmd);
-      submitSignalSemaphore(cmd);
+      vkEndCommandBuffer(cmd);  // Need to end the command buffer to submit the semaphore
+
+      // Prepare the signal semaphore for the OptiX denoiser
+      VkSemaphoreSubmitInfoKHR signal_semaphore{
+          .sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+          .semaphore = m_denoiser->getTLSemaphore(),
+          .value     = ++m_fenceValue,  // Increment for signaling
+          .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+      };
+
+      VkCommandBufferSubmitInfoKHR cmd_buf_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR, 0, cmd};
+
+      VkSubmitInfo2KHR submits{
+          .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
+          .commandBufferInfoCount   = 1,
+          .pCommandBufferInfos      = &cmd_buf_info,
+          .signalSemaphoreInfoCount = 1,
+          .pSignalSemaphoreInfos    = &signal_semaphore,
+      };
+
+      // Submit rendering and signal when done
+      vkQueueSubmit2(m_app->getContext()->m_queueGCT, 1, &submits, {});
 
       // #OPTIX_D
-      // Denoiser waits for signal and submit new one when done
+      // Denoiser waits for signal (Vulkan) and submit (Cuda) new one when done
       denoiseImage();
 
       // #OPTIX_D
       // Adding a wait semaphore to the application, such that the frame command buffer,
       // will wait for the end of the denoised image before executing the command buffer.
-      VkSemaphoreSubmitInfoKHR wait_semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR};
-      wait_semaphore.semaphore = m_denoiser->getTLSemaphore();
-      wait_semaphore.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      wait_semaphore.value     = m_fenceValue;
+      VkSemaphoreSubmitInfo wait_semaphore{
+          .sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+          .semaphore = m_denoiser->getTLSemaphore(),
+          .value     = m_fenceValue,
+          .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+      };
       m_app->addWaitSemaphore(wait_semaphore);
 
 
       // #OPTIX_D
-      // Need to for the command to be completed
-      NVVK_CHECK(vkWaitForFences(m_device, 1, &m_fence, VK_TRUE, ~0ULL));
+      // Continue rendering pipeline (using the second command buffer)
+      cmd = commandFrame.cmdBuffer[1];
 
-      // #OPTIX_D
-      // Continue rendering pipeline (renewing the command buffer)
-      VkCommandBufferBeginInfo begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-      begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+      VkCommandBufferBeginInfo begin_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, 0, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
       vkBeginCommandBuffer(cmd, &begin_info);
       copyCudaImagesToVulkan(cmd);
     }
@@ -427,8 +466,11 @@ public:
     // Apply tonemapper - take GBuffer-X and output to GBuffer-0
     m_tonemapper->runCompute(cmd, m_gBuffers->getSize());
 
-    // Render corner axis
-    renderAxis(cmd);
+    // End of the first or second command buffer
+    vkEndCommandBuffer(cmd);
+    VkCommandBufferSubmitInfo submit_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR};
+    submit_info.commandBuffer = cmd;
+    m_app->prependCommandBuffer(submit_info);  // Prepend to the frame command buffer
   }
 
 
@@ -436,8 +478,8 @@ private:
   void createScene(const std::string& filename)
   {
     m_scene->load(filename);
-    nvvkhl::setCameraFromScene(filename, m_scene->scene());               // Camera auto-scene-fitting
-    g_elem_camera->setSceneRadius(m_scene->scene().m_dimensions.radius);  // Navigation help
+    nvvkhl::setCameraFromScene(filename, m_scene->scene());              // Camera auto-scene-fitting
+    g_elemCamera->setSceneRadius(m_scene->scene().m_dimensions.radius);  // Navigation help
 
     {  // Create the Vulkan side of the scene
       auto cmd = m_app->createTempCmdBuffer();
@@ -847,26 +889,6 @@ private:
     LOGI("PrimitiveID: %d\n", pr.primitiveID);
   }
 
-  //--------------------------------------------------------------------------------------------------
-  // Render the axis in the bottom left corner of the screen
-  //
-  void renderAxis(const VkCommandBuffer& cmd)
-  {
-    if(m_settings.showAxis)
-    {
-      float axis_size = 50.F;
-
-      nvvk::createRenderingInfo r_info({{0, 0}, m_gBuffers->getSize()}, {m_gBuffers->getColorImageView(eGBufLdr)},
-                                       m_gBuffers->getDepthImageView(), VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_LOAD_OP_CLEAR);
-      r_info.pStencilAttachment = nullptr;
-      // Rendering the axis
-      vkCmdBeginRendering(cmd, &r_info);
-      m_vkAxis->setAxisSize(axis_size);
-      m_vkAxis->display(cmd, CameraManip.getMatrix(), m_gBuffers->getSize());
-      vkCmdEndRendering(cmd);
-    }
-  }
-
   void raytraceScene(VkCommandBuffer cmd)
   {
     auto scope_dbg = m_dutil->DBG_SCOPE(cmd);
@@ -957,42 +979,40 @@ private:
   }
 
 
-  // We are submitting the command buffer using a timeline semaphore, semaphore used by Cuda to wait
-  // for the Vulkan execution before denoising
-  // #OPTIX_D
-  void submitSignalSemaphore(const VkCommandBuffer& cmdBuf)
+  void createCommandBuffers()
   {
-    VkCommandBufferSubmitInfoKHR cmd_buf_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR};
-    cmd_buf_info.commandBuffer = cmdBuf;
-
-#ifdef NVP_SUPPORTS_OPTIX7
-    // Increment for signaling
-    m_fenceValue++;
-
-    VkSemaphoreSubmitInfoKHR signal_semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR};
-    signal_semaphore.semaphore = m_denoiser->getTLSemaphore();
-    signal_semaphore.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
-    signal_semaphore.value     = m_fenceValue;
-#endif  // NVP_SUPPORTS_OPTIX7
-
-    VkSubmitInfo2KHR submits{VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR};
-    submits.commandBufferInfoCount = 1;
-    submits.pCommandBufferInfos    = &cmd_buf_info;
-#ifdef NVP_SUPPORTS_OPTIX7
-    submits.signalSemaphoreInfoCount = 1;
-    submits.pSignalSemaphoreInfos    = &signal_semaphore;
-#endif  // _DEBUG
-
-    vkResetFences(m_device, 1, &m_fence);
-    vkQueueSubmit2(m_app->getContext()->m_queueGCT, 1, &submits, m_fence);
+    // Max 3 frames in flight
+    for(uint32_t i = 0; i < 3; i++)
+    {
+      CommandFrame* cf = &m_commandFrames[i];
+      {
+        VkCommandPoolCreateInfo info = {.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                                        .flags            = 0,
+                                        .queueFamilyIndex = m_app->getQueueGCT().familyIndex};
+        NVVK_CHECK(vkCreateCommandPool(m_device, &info, nullptr, &cf->cmdPool));
+        m_dutil->setObjectName(cf->cmdPool, "Pool" + std::to_string(i));
+      }
+      {
+        VkCommandBufferAllocateInfo info = {.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                            .commandPool        = cf->cmdPool,
+                                            .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                            .commandBufferCount = 2};
+        NVVK_CHECK(vkAllocateCommandBuffers(m_device, &info, cf->cmdBuffer));
+        m_dutil->setObjectName(cf->cmdBuffer[0], fmt::format("Cmd[{}][0]", i));
+        m_dutil->setObjectName(cf->cmdBuffer[1], fmt::format("Cmd[{}][1]", i));
+      }
+    }
   }
 
   void destroyResources()
   {
-    vkDestroyFence(m_device, m_fence, nullptr);
-
     m_alloc->destroy(m_bFrameInfo);
 
+    for(auto& f : m_commandFrames)
+    {
+      vkFreeCommandBuffers(m_device, f.cmdPool, 2, f.cmdBuffer);
+      vkDestroyCommandPool(m_device, f.cmdPool, nullptr);
+    }
     m_gBuffers.reset();
 
     m_rasterPipe.destroy(m_device);
@@ -1001,7 +1021,6 @@ private:
     m_sceneSet->deinit();
     m_sbt->destroy();
     m_picker->destroy();
-    m_vkAxis->deinit();
 #ifdef NVP_SUPPORTS_OPTIX7
     m_denoiser->destroy();
 #endif
@@ -1020,9 +1039,9 @@ private:
   std::unique_ptr<nvvkhl::GBuffer>              m_gBuffers;                                 // G-Buffers: color + depth
   std::unique_ptr<nvvk::DescriptorSetContainer> m_rtxSet;                                   // Descriptor set
   std::unique_ptr<nvvk::DescriptorSetContainer> m_sceneSet;                                 // Descriptor set
+
   // Resources
   nvvk::Buffer m_bFrameInfo;
-  VkFence      m_fence;
 
   // Pipeline
   PushConstant      m_pushConst{};  // Information sent to the shader
@@ -1037,7 +1056,6 @@ private:
   std::unique_ptr<TonemapperPostProcess> m_tonemapper;
   std::unique_ptr<nvvk::SBTWrapper>      m_sbt;     // Shading binding table wrapper
   std::unique_ptr<nvvk::RayPickerKHR>    m_picker;  // For ray picking info
-  std::unique_ptr<nvvk::AxisVK>          m_vkAxis;
   std::unique_ptr<HdrEnv>                m_hdrEnv;
 
   // For rendering all nodes
@@ -1050,6 +1068,14 @@ private:
   uint64_t                       m_fenceValue{0U};
 #endif  // NVP_SUPPORTS_OPTIX7
   float m_blendFactor = 0.0f;
+
+  // Command buffers for rendering
+  struct CommandFrame
+  {
+    VkCommandPool   cmdPool      = VK_NULL_HANDLE;
+    VkCommandBuffer cmdBuffer[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+  };
+  std::array<CommandFrame, 3> m_commandFrames;
 };
 
 }  // namespace nvvkhl
@@ -1059,7 +1085,7 @@ private:
 ///
 ///
 ///
-auto main(int /*argc*/, char** /*argv*/) -> int
+auto main(int argc, char** argv) -> int
 {
   nvvkhl::ApplicationCreateInfo spec;
   spec.name             = PROJECT_NAME " Example";
@@ -1103,12 +1129,13 @@ auto main(int /*argc*/, char** /*argv*/) -> int
   // Create the application
   auto app = std::make_unique<nvvkhl::Application>(spec);
 
-  // Create application elements
-  auto optix_denoiser = std::make_shared<nvvkhl::OptixDenoiserEngine>();
-  g_elem_camera       = std::make_shared<nvvkhl::ElementCamera>();
+  g_elemBenchmark    = std::make_shared<nvvkhl::ElementBenchmarkParameters>(argc, argv);  // Benchmarking
+  g_elemCamera       = std::make_shared<nvvkhl::ElementCamera>();        // Create the camera to be used
+  auto optixDenoiser = std::make_shared<nvvkhl::OptixDenoiserEngine>();  // Create application elements
 
-  app->addElement(g_elem_camera);
-  app->addElement(optix_denoiser);
+  app->addElement(g_elemCamera);
+  app->addElement(g_elemBenchmark);
+  app->addElement(optixDenoiser);
   app->addElement(std::make_shared<nvvkhl::ElementDefaultMenu>());  // Menu / Quit
 
   // Search paths
@@ -1116,17 +1143,17 @@ auto main(int /*argc*/, char** /*argv*/) -> int
 
   // Load scene
   std::string scn_file = nvh::findFile(R"(media/cornellBox.gltf)", default_search_paths, true);
-  optix_denoiser->onFileDrop(scn_file.c_str());
+  optixDenoiser->onFileDrop(scn_file.c_str());
 
   // Load HDR
   std::string hdr_file = nvh::findFile(R"(media/spruit_sunrise_1k.hdr)", default_search_paths, true);
-  optix_denoiser->onFileDrop(hdr_file.c_str());
+  optixDenoiser->onFileDrop(hdr_file.c_str());
 
   // Run as fast as possible
   app->setVsync(false);
 
   app->run();
-  optix_denoiser.reset();
+  optixDenoiser.reset();
   app.reset();
 
   return 0;
