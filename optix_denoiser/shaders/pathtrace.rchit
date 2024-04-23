@@ -124,8 +124,6 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
   if(nextEventValid)
   {
     BsdfEvaluateData evalData;
-    evalData.ior1 = vec3(1.0F);
-    evalData.ior2 = vec3(1.0F);
     evalData.k1   = -gl_WorldRayDirectionEXT;
     evalData.k2   = dirToLight;
 
@@ -145,8 +143,6 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
   // Sample BSDF
   {
     BsdfSampleData sampleData;
-    sampleData.ior1 = vec3(1.0F);                // IOR current medium
-    sampleData.ior2 = vec3(1.0F);                // IOR other side
     sampleData.k1   = -gl_WorldRayDirectionEXT;  // outgoing direction
     sampleData.xi   = vec4(rand(payload.seed), rand(payload.seed), rand(payload.seed), rand(payload.seed));
     bsdfSample(sampleData, pbrMat);
