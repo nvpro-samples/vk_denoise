@@ -36,19 +36,18 @@
 #include "nvvkhl/shaders/dh_scn_desc.h"
 #include "nvvkhl/shaders/random.glsl"
 #include "nvvkhl/shaders/bsdf_functions.h"
+#include "nvvkhl/shaders/vertex_accessor.h"
 
 
 hitAttributeEXT vec2 attribs;
 
+#include "get_hit.glsl"
+
 // clang-format off
 layout(location = 0) rayPayloadInEXT HitPayload payload;
 
-layout(buffer_reference, scalar) readonly buffer Vertices  { Vertex v[]; };
-layout(buffer_reference, scalar) readonly buffer Indices   { uvec3 i[]; };
-layout(buffer_reference, scalar) readonly buffer PrimMeshInfos { PrimMeshInfo i[]; };
 layout(buffer_reference, scalar) readonly buffer Materials { GltfShadeMaterial m[]; };
 
-#include "get_hit.glsl"
 
 layout(set = 0, binding = eTlas ) uniform accelerationStructureEXT topLevelAS;
 layout(set = 1, binding = eFrameInfo) uniform FrameInfo_ { FrameInfo frameInfo; };
@@ -180,13 +179,13 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
 void main()
 {
   // Retrieve the Primitive mesh buffer information
-  PrimMeshInfos pInfo_ = PrimMeshInfos(sceneDesc.primInfoAddress);
-  PrimMeshInfo  pinfo  = pInfo_.i[gl_InstanceCustomIndexEXT];
+  RenderNode renderNode = RenderNodeBuf(sceneDesc.renderNodeAddress)._[gl_InstanceID];
+  RenderPrimitive rprim = RenderPrimitiveBuf(sceneDesc.renderPrimitiveAddress)._[gl_InstanceCustomIndexEXT];
 
-  HitState hit = getHitState(pinfo.vertexAddress, pinfo.indexAddress);
+  HitState hit = getHitState(rprim);
 
   // Scene materials
-  uint      matIndex  = max(0, pinfo.materialIndex);  // material of primitive mesh
+  uint      matIndex  = max(0, renderNode.materialID);  // material of primitive mesh
   Materials materials = Materials(sceneDesc.materialAddress);
 
   // Material of the object and evaluated material (includes textures)

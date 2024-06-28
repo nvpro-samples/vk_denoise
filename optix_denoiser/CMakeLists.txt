@@ -1,21 +1,23 @@
 #-------------------------------------------------------------------------
 # Executable
 #-------------------------------------------------------------------------
-get_filename_component(PROJECT_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+set(PROJECT_NAME vk_denoise)
 message(STATUS "-------------------------------")
 message(STATUS "Processing Project ${PROJECT_NAME}:")
 
-file(GLOB SOURCE_FILES src/*.cpp src/*.hpp src/*.h)
+# Finding CUDA Toolkit
+find_package(CUDAToolkit)
+if(NOT CUDAToolkit_FOUND)
+  message(WARNING "Project ${PROJECT_NAME} NOT built: CUDA Toolkit not found. Please provide CUDAToolkit_ROOT to the CMake invocation.")
+  return()
+endif()
 
-# Finding Cuda Toolkit
-find_package(CUDAToolkit REQUIRED)
-
-#_add_package_Cuda()
 _add_package_Optix7()
 _add_package_VulkanSDK()
 _add_package_ImGUI()
 _add_nvpro_core_lib()
 
+file(GLOB SOURCE_FILES src/*.cpp src/*.hpp src/*.h)
 add_executable(${PROJECT_NAME} ${SOURCE_FILES} ${COMMON_SOURCE_FILES} ${PACKAGE_SOURCE_FILES})
 
 _add_project_definitions(${PROJECT_NAME})

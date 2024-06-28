@@ -107,7 +107,7 @@ def test():
 
     os.chdir(current_dir)
     if returncode != 0:
-        sys.exit(returncode)
+        sys.exit(1)
 
 if __name__ == "__main__":
     # Create the parser

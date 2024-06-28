@@ -7,6 +7,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #include "nvvkhl/shaders/ray_util.glsl"
+#include "nvvkhl/shaders/vertex_accessor.h"
 
 precision highp float;
 
@@ -26,38 +27,30 @@ struct HitState
 
 //-----------------------------------------------------------------------
 //-----------------------------------------------------------------------
-HitState getHitState(uint64_t vertexAddress, uint64_t indexAddress)
+HitState getHitState(RenderPrimitive renderPrim)
 {
   HitState hit;
-
-  // Vextex and indices of the primitive
-  Vertices vertices = Vertices(vertexAddress);
-  Indices  indices  = Indices(indexAddress);
 
   // Barycentric coordinate on the triangle
   const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
   // Getting the 3 indices of the triangle (local)
-  uvec3 triangleIndex = indices.i[gl_PrimitiveID];
+  uvec3 triangleIndex = getTriangleIndices(renderPrim,gl_PrimitiveID);
 
-  // All vertex attributes of the triangle.
-  Vertex v0 = vertices.v[triangleIndex.x];
-  Vertex v1 = vertices.v[triangleIndex.y];
-  Vertex v2 = vertices.v[triangleIndex.z];
 
   // Triangle info
-  const vec3 pos0 = v0.position.xyz;
-  const vec3 pos1 = v1.position.xyz;
-  const vec3 pos2 = v2.position.xyz;
-  const vec3 nrm0 = v0.normal.xyz;
-  const vec3 nrm1 = v1.normal.xyz;
-  const vec3 nrm2 = v2.normal.xyz;
-  const vec2 uv0  = vec2(v0.position.w, v0.normal.w);
-  const vec2 uv1  = vec2(v1.position.w, v1.normal.w);
-  const vec2 uv2  = vec2(v2.position.w, v2.normal.w);
-  const vec4 tng0 = vec4(v0.tangent);
-  const vec4 tng1 = vec4(v1.tangent);
-  const vec4 tng2 = vec4(v2.tangent);
+  const vec3 pos0 = getVertexPosition(renderPrim, triangleIndex.x);
+  const vec3 pos1 = getVertexPosition(renderPrim, triangleIndex.y);
+  const vec3 pos2 = getVertexPosition(renderPrim, triangleIndex.z);
+  const vec3 nrm0 = getVertexNormal(renderPrim, triangleIndex.x);
+  const vec3 nrm1 = getVertexNormal(renderPrim, triangleIndex.y);
+  const vec3 nrm2 = getVertexNormal(renderPrim, triangleIndex.z);
+  const vec2 uv0  = getVertexTexCoord0(renderPrim, triangleIndex.x);
+  const vec2 uv1  = getVertexTexCoord0(renderPrim, triangleIndex.y);
+  const vec2 uv2  = getVertexTexCoord0(renderPrim, triangleIndex.z);
+  const vec4 tng0 = getVertexTangent(renderPrim, triangleIndex.x);
+  const vec4 tng1 = getVertexTangent(renderPrim, triangleIndex.y);
+  const vec4 tng2 = getVertexTangent(renderPrim, triangleIndex.z);
 
   // Position
   hit.pos = mixBary(pos0, pos1, pos2, barycentrics);

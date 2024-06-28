@@ -35,6 +35,7 @@
 #include "nvvkhl/shaders/dh_hdr.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
 #include "nvvkhl/shaders/pbr_mat_struct.h"
+#include "nvvkhl/shaders/vertex_accessor.h"
 
 
 hitAttributeEXT vec2 attribs;
@@ -42,9 +43,6 @@ hitAttributeEXT vec2 attribs;
 // clang-format off
 layout(location = 1) rayPayloadInEXT GbufferPayload payloadGbuf;
 
-layout(buffer_reference, scalar) readonly buffer Vertices  { Vertex v[]; };
-layout(buffer_reference, scalar) readonly buffer Indices   { uvec3 i[]; };
-layout(buffer_reference, scalar) readonly buffer PrimMeshInfos { PrimMeshInfo i[]; };
 layout(buffer_reference, scalar) readonly buffer Materials { GltfShadeMaterial m[]; };
 
 layout(set = 1, binding = eFrameInfo) uniform FrameInfo_ { FrameInfo frameInfo; };
@@ -70,24 +68,15 @@ struct HitState
 
 //-----------------------------------------------------------------------
 //-----------------------------------------------------------------------
-HitState GetHitState(PrimMeshInfo pinfo)
+HitState GetHitState(RenderPrimitive renderPrim)
 {
   HitState hit;
-
-  // Vextex and indices of the primitive
-  Vertices vertices = Vertices(pinfo.vertexAddress);
-  Indices  indices  = Indices(pinfo.indexAddress);
 
   // Barycentric coordinate on the triangle
   const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
   // Getting the 3 indices of the triangle (local)
-  uvec3 triangleIndex = indices.i[gl_PrimitiveID];
-
-  // All vertex attributes of the triangle.
-  Vertex v0 = vertices.v[triangleIndex.x];
-  Vertex v1 = vertices.v[triangleIndex.y];
-  Vertex v2 = vertices.v[triangleIndex.z];
+  uvec3 triangleIndex = getTriangleIndices(renderPrim, gl_PrimitiveID);
 
   // Position
   //  const vec3 pos0     = v0.position.xyz;
@@ -97,24 +86,24 @@ HitState GetHitState(PrimMeshInfo pinfo)
   //  hit.pos             = vec3(gl_ObjectToWorldEXT * vec4(position, 1.0));
 
   // Normal
-  const vec3 nrm0        = v0.normal.xyz;
-  const vec3 nrm1        = v1.normal.xyz;
-  const vec3 nrm2        = v2.normal.xyz;
+  const vec3 nrm0        = getVertexNormal(renderPrim, triangleIndex.x);
+  const vec3 nrm1        = getVertexNormal(renderPrim, triangleIndex.y);
+  const vec3 nrm2        = getVertexNormal(renderPrim, triangleIndex.z);
   const vec3 normal      = normalize(nrm0 * barycentrics.x + nrm1 * barycentrics.y + nrm2 * barycentrics.z);
   const vec3 worldNormal = normalize(vec3(normal * gl_WorldToObjectEXT));
   //  const vec3 geomNormal  = normalize(cross(pos1 - pos0, pos2 - pos0));
   hit.nrm = dot(worldNormal, gl_WorldRayDirectionEXT) <= 0.0 ? worldNormal : -worldNormal;  // Front-face
 
   // TexCoord
-  const vec2 uv0 = vec2(v0.position.w, v0.normal.w);
-  const vec2 uv1 = vec2(v1.position.w, v1.normal.w);
-  const vec2 uv2 = vec2(v2.position.w, v2.normal.w);
+  const vec2 uv0 = getVertexTexCoord0(renderPrim, triangleIndex.x);
+  const vec2 uv1 = getVertexTexCoord0(renderPrim, triangleIndex.y);
+  const vec2 uv2 = getVertexTexCoord0(renderPrim, triangleIndex.z);
   hit.uv         = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
 
   // Tangent - Bitangent
-  const vec4 tng0    = vec4(v0.tangent);
-  const vec4 tng1    = vec4(v1.tangent);
-  const vec4 tng2    = vec4(v2.tangent);
+  const vec4 tng0    = getVertexTangent(renderPrim, triangleIndex.x);
+  const vec4 tng1    = getVertexTangent(renderPrim, triangleIndex.y);
+  const vec4 tng2    = getVertexTangent(renderPrim, triangleIndex.z);
   vec3       tangent = normalize(tng0.xyz * barycentrics.x + tng1.xyz * barycentrics.y + tng2.xyz * barycentrics.z);
   vec3       world_tangent  = normalize(vec3(tangent * gl_WorldToObjectEXT));
   vec3       world_binormal = cross(worldNormal, world_tangent) * tng0.w;
@@ -132,13 +121,13 @@ HitState GetHitState(PrimMeshInfo pinfo)
 void main()
 {
   // Retrieve the Primitive mesh buffer information
-  PrimMeshInfos pInfo_ = PrimMeshInfos(sceneDesc.primInfoAddress);
-  PrimMeshInfo  pinfo  = pInfo_.i[gl_InstanceCustomIndexEXT];
+  RenderNode renderNode       = RenderNodeBuf(sceneDesc.renderNodeAddress)._[gl_InstanceID];
+  RenderPrimitive renderPrim  = RenderPrimitiveBuf(sceneDesc.renderPrimitiveAddress)._[gl_InstanceCustomIndexEXT];
 
-  HitState hit = GetHitState(pinfo);
+  HitState hit = GetHitState(renderPrim);
 
   // Scene materials
-  uint      matIndex  = max(0, pinfo.materialIndex);  // material of primitive mesh
+  uint      matIndex  = max(0, renderNode.materialID);  // material of primitive mesh
   Materials materials = Materials(sceneDesc.materialAddress);
 
   // Material of the object and evaluated material (includes textures)

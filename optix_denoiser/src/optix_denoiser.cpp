@@ -62,7 +62,6 @@
 #include "nvvkhl/element_camera.hpp"
 #include "nvvkhl/element_gui.hpp"
 #include "nvvkhl/gbuffer.hpp"
-#include "nvvkhl/gltf_scene.hpp"
 #include "nvvkhl/gltf_scene_rtx.hpp"
 #include "nvvkhl/gltf_scene_vk.hpp"
 #include "nvvkhl/hdr_env.hpp"
@@ -127,18 +126,19 @@ public:
 
   void onAttach(nvvkhl::Application* app) override
   {
-    m_app    = app;
-    m_device = m_app->getDevice();
+    m_app            = app;
+    m_device         = m_app->getDevice();
+    m_physicalDevice = m_app->getPhysicalDevice();
 
     m_dutil      = std::make_unique<nvvk::DebugUtil>(m_device);                           // Debug utility
     m_alloc      = std::make_unique<AllocVma>(m_app->getContext().get());                 // Allocator
-    m_scene      = std::make_unique<Scene>();                                             // GLTF scene
-    m_sceneVk    = std::make_unique<SceneVk>(m_app->getContext().get(), m_alloc.get());   // GLTF Scene buffers
-    m_sceneRtx   = std::make_unique<SceneRtx>(m_app->getContext().get(), m_alloc.get());  // GLTF Scene BLAS/TLAS
-    m_tonemapper = std::make_unique<TonemapperPostProcess>(m_app->getContext().get(), m_alloc.get());
+    m_scene      = std::make_unique<nvh::gltf::Scene>();                                  // GLTF scene
+    m_sceneVk    = std::make_unique<SceneVk>(m_device, m_physicalDevice, m_alloc.get());   // GLTF Scene buffers
+    m_sceneRtx   = std::make_unique<SceneRtx>(m_device, m_physicalDevice, m_alloc.get());  // GLTF Scene BLAS/TLAS
+    m_tonemapper = std::make_unique<TonemapperPostProcess>(m_device, m_alloc.get());
     m_sbt        = std::make_unique<nvvk::SBTWrapper>();
-    m_picker     = std::make_unique<nvvk::RayPickerKHR>(m_app->getContext().get(), m_alloc.get());
-    m_hdrEnv     = std::make_unique<HdrEnv>(m_app->getContext().get(), m_alloc.get());
+    m_picker     = std::make_unique<nvvk::RayPickerKHR>(m_device, m_physicalDevice, m_alloc.get());
+    m_hdrEnv     = std::make_unique<HdrEnv>(m_device, m_physicalDevice, m_alloc.get());
     m_rtxSet     = std::make_unique<nvvk::DescriptorSetContainer>(m_device);
     m_sceneSet   = std::make_unique<nvvk::DescriptorSetContainer>(m_device);
 
@@ -478,31 +478,21 @@ private:
   void createScene(const std::string& filename)
   {
     m_scene->load(filename);
-    nvvkhl::setCameraFromScene(filename, m_scene->scene());              // Camera auto-scene-fitting
-    g_elemCamera->setSceneRadius(m_scene->scene().m_dimensions.radius);  // Navigation help
+    nvvkhl::setCamera(filename, m_scene->getRenderCameras(), m_scene->getSceneBounds());  // Camera auto-scene-fitting
+    g_elemCamera->setSceneRadius(m_scene->getSceneBounds().radius());                     // Navigation help
 
     {  // Create the Vulkan side of the scene
       auto cmd = m_app->createTempCmdBuffer();
       m_sceneVk->create(cmd, *m_scene);
+      m_sceneRtx->create(cmd, *m_scene, *m_sceneVk, VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);  // Create BLAS / TLAS
       m_app->submitAndWaitTempCmdBuffer(cmd);
 
-      m_sceneRtx->create(*m_scene, *m_sceneVk);  // Create BLAS / TLAS
       m_picker->setTlas(m_sceneRtx->tlas());
     }
 
-    const auto& gltf_scene = m_scene->scene();
-
-    for(uint32_t i = 0; i < gltf_scene.m_nodes.size(); i++)
-    {
-      const auto  prim_mesh = gltf_scene.m_nodes[i].primMesh;
-      const auto  mat_id    = gltf_scene.m_primMeshes[prim_mesh].materialIndex;
-      const auto& mat       = gltf_scene.m_materials[mat_id];
-      m_allNodes.push_back(i);
-      if(mat.alphaMode == 0)
-        m_solidMatNodes.push_back(i);
-      else
-        m_blendMatNodes.push_back(i);
-    }
+    m_allNodes      = m_scene->getShadedNodes(nvh::gltf::Scene::PipelineType::eRasterAll);
+    m_solidMatNodes = m_scene->getShadedNodes(nvh::gltf::Scene::PipelineType::eRasterSolid);
+    m_blendMatNodes = m_scene->getShadedNodes(nvh::gltf::Scene::PipelineType::eRasterBlend);
 
     // Descriptor Set and Pipelines
     createSceneSet();
@@ -883,8 +873,9 @@ private:
     //    auto float_as_uint = [](float f) { return *reinterpret_cast<uint32_t*>(&f); };
 
     // Logging picking info.
-    const auto& prim = m_scene->scene().m_primMeshes[pr.instanceCustomIndex];
-    LOGI("Hit(%d): %s, PrimId: %d", pr.instanceCustomIndex, prim.name.c_str(), pr.primitiveID);
+    const auto& renderNode = m_scene->getRenderNodes()[pr.instanceID];
+    std::string name       = m_scene->getModel().nodes[renderNode.refNodeID].name;
+    LOGI("Hit(%d): %s, PrimId: %d", pr.instanceCustomIndex, name.c_str(), pr.primitiveID);
     LOGI("{%3.2f, %3.2f, %3.2f}, Dist: %3.2f\n", world_pos.x, world_pos.y, world_pos.z, pr.hitT);
     LOGI("PrimitiveID: %d\n", pr.primitiveID);
   }
@@ -918,7 +909,7 @@ private:
 
   void createHdr(const char* filename)
   {
-    m_hdrEnv = std::make_unique<HdrEnv>(m_app->getContext().get(), m_alloc.get());
+    m_hdrEnv = std::make_unique<HdrEnv>(m_device, m_physicalDevice, m_alloc.get());
 
     m_hdrEnv->loadEnvironment(filename);
   }
@@ -1033,12 +1024,13 @@ private:
   std::unique_ptr<nvvk::DebugUtil> m_dutil;
   std::unique_ptr<AllocVma>        m_alloc;
 
-  glm::vec2                                     m_viewSize   = {1, 1};
-  VkClearColorValue                             m_clearColor = {{0.3F, 0.3F, 0.3F, 1.0F}};  // Clear color
-  VkDevice                                      m_device     = VK_NULL_HANDLE;              // Convenient
-  std::unique_ptr<nvvkhl::GBuffer>              m_gBuffers;                                 // G-Buffers: color + depth
-  std::unique_ptr<nvvk::DescriptorSetContainer> m_rtxSet;                                   // Descriptor set
-  std::unique_ptr<nvvk::DescriptorSetContainer> m_sceneSet;                                 // Descriptor set
+  glm::vec2                                     m_viewSize       = {1, 1};
+  VkClearColorValue                             m_clearColor     = {{0.3F, 0.3F, 0.3F, 1.0F}};  // Clear color
+  VkDevice                                      m_device         = VK_NULL_HANDLE;              // Convenient
+  VkPhysicalDevice                              m_physicalDevice = VK_NULL_HANDLE;              // Convenient
+  std::unique_ptr<nvvkhl::GBuffer>              m_gBuffers;  // G-Buffers: color + depth
+  std::unique_ptr<nvvk::DescriptorSetContainer> m_rtxSet;    // Descriptor set
+  std::unique_ptr<nvvk::DescriptorSetContainer> m_sceneSet;  // Descriptor set
 
   // Resources
   nvvk::Buffer m_bFrameInfo;
@@ -1050,7 +1042,7 @@ private:
   int               m_frame{-1};
   FrameInfo         m_frameInfo{};
 
-  std::unique_ptr<Scene>                 m_scene;
+  std::unique_ptr<nvh::gltf::Scene>      m_scene;
   std::unique_ptr<SceneVk>               m_sceneVk;
   std::unique_ptr<SceneRtx>              m_sceneRtx;
   std::unique_ptr<TonemapperPostProcess> m_tonemapper;
