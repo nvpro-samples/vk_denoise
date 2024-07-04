@@ -26,8 +26,8 @@
 #include "dh_bindings.h"
 #include "payload.glsl"
 #include "nvvkhl/shaders/dh_sky.h"
-#include "nvvkhl/shaders/constants.glsl"
-#include "nvvkhl/shaders/func.glsl"
+#include "nvvkhl/shaders/constants.h"
+#include "nvvkhl/shaders/func.h"
 #include "nvvkhl/shaders/dh_hdr.h"
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;

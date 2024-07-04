@@ -6,7 +6,7 @@
 
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-#include "nvvkhl/shaders/ray_util.glsl"
+#include "nvvkhl/shaders/ray_util.h"
 #include "nvvkhl/shaders/vertex_accessor.h"
 
 precision highp float;
@@ -35,7 +35,7 @@ HitState getHitState(RenderPrimitive renderPrim)
   const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
   // Getting the 3 indices of the triangle (local)
-  uvec3 triangleIndex = getTriangleIndices(renderPrim,gl_PrimitiveID);
+  uvec3 triangleIndex = getTriangleIndices(renderPrim, gl_PrimitiveID);
 
 
   // Triangle info
@@ -48,9 +48,9 @@ HitState getHitState(RenderPrimitive renderPrim)
   const vec2 uv0  = getVertexTexCoord0(renderPrim, triangleIndex.x);
   const vec2 uv1  = getVertexTexCoord0(renderPrim, triangleIndex.y);
   const vec2 uv2  = getVertexTexCoord0(renderPrim, triangleIndex.z);
-  const vec4 tng0 = getVertexTangent(renderPrim, triangleIndex.x);
-  const vec4 tng1 = getVertexTangent(renderPrim, triangleIndex.y);
-  const vec4 tng2 = getVertexTangent(renderPrim, triangleIndex.z);
+  vec4 tng0 = getVertexTangent(renderPrim, triangleIndex.x);
+  vec4 tng1 = getVertexTangent(renderPrim, triangleIndex.y);
+  vec4 tng2 = getVertexTangent(renderPrim, triangleIndex.z);
 
   // Position
   hit.pos = mixBary(pos0, pos1, pos2, barycentrics);
@@ -67,6 +67,14 @@ HitState getHitState(RenderPrimitive renderPrim)
   hit.uv = mixBary(uv0, uv1, uv2, barycentrics);
 
   // Tangent - Bitangent
+  if(!hasVertexTangent(renderPrim))
+  {
+    vec4 t = makeFastTangent(hit.nrm);
+    tng0   = t;
+    tng1   = t;
+    tng2   = t;
+  }
+
   hit.tangent       = normalize(mixBary(tng0.xyz, tng1.xyz, tng2.xyz, barycentrics));
   hit.tangent       = vec3(gl_ObjectToWorldEXT * vec4(hit.tangent, 0.0));
   hit.tangent       = normalize(hit.tangent - hit.nrm * dot(hit.nrm, hit.tangent));

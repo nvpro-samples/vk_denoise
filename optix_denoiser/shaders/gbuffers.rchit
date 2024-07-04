@@ -29,8 +29,8 @@
 #include "payload.glsl"
 #include "dh_bindings.h"
 
-#include "nvvkhl/shaders/constants.glsl"
-#include "nvvkhl/shaders/ggx.glsl"
+#include "nvvkhl/shaders/constants.h"
+#include "nvvkhl/shaders/ggx.h"
 #include "nvvkhl/shaders/dh_sky.h"
 #include "nvvkhl/shaders/dh_hdr.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
@@ -51,7 +51,7 @@ layout(set = 1, binding = eTextures)  uniform sampler2D texturesMap[]; // all te
 // clang-format on
 
 
-#include "nvvkhl/shaders/pbr_mat_eval.glsl"
+#include "nvvkhl/shaders/pbr_mat_eval.h"
 #include "compress.glsl"
 
 //-----------------------------------------------------------------------
@@ -134,7 +134,7 @@ void main()
   GltfShadeMaterial mat    = materials.m[matIndex];
   PbrMaterial       pbrMat = evaluateMaterial(mat, hit.nrm, hit.tangent, hit.bitangent, hit.uv);
 
-  payloadGbuf.packAlbedo = packUnorm4x8(pbrMat.albedo);
+  payloadGbuf.packAlbedo = packUnorm4x8(vec4(pbrMat.baseColor, pbrMat.opacity));
   //payloadGbuf.packAlbedo = packUnorm4x8(mat.pbrBaseColorFactor);
-  payloadGbuf.packNormal = compress_unit_vec(pbrMat.normal);
+  payloadGbuf.packNormal = compress_unit_vec(pbrMat.N);
 }

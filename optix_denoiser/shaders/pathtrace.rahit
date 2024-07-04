@@ -30,7 +30,7 @@
 #include "device_host.h"
 #include "dh_bindings.h"
 #include "payload.glsl"
-#include "nvvkhl/shaders/random.glsl"
+#include "nvvkhl/shaders/random.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
 #include "nvvkhl/shaders/vertex_accessor.h"
 

@@ -29,12 +29,12 @@
 #include "dh_bindings.h"
 #include "payload.glsl"
 
-#include "nvvkhl/shaders/constants.glsl"
-#include "nvvkhl/shaders/ggx.glsl"
+#include "nvvkhl/shaders/constants.h"
+#include "nvvkhl/shaders/ggx.h"
 #include "nvvkhl/shaders/dh_sky.h"
 #include "nvvkhl/shaders/dh_hdr.h"
 #include "nvvkhl/shaders/dh_scn_desc.h"
-#include "nvvkhl/shaders/random.glsl"
+#include "nvvkhl/shaders/random.h"
 #include "nvvkhl/shaders/bsdf_functions.h"
 #include "nvvkhl/shaders/vertex_accessor.h"
 
@@ -60,8 +60,8 @@ layout(push_constant) uniform RtxPushConstant_ { PushConstant pc; };
 // clang-format on
 
 // Includes depending on layout description
-#include "nvvkhl/shaders/pbr_mat_eval.glsl"  // texturesMap
-#include "nvvkhl/shaders/hdr_env_sampling.glsl"
+#include "nvvkhl/shaders/pbr_mat_eval.h"  // texturesMap
+#include "nvvkhl/shaders/hdr_env_sampling.h"
 
 
 void stopPath()
@@ -125,7 +125,7 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
     BsdfEvaluateData evalData;
     evalData.k1   = -gl_WorldRayDirectionEXT;
     evalData.k2   = dirToLight;
-
+    evalData.xi = vec3(rand(payload.seed), rand(payload.seed), rand(payload.seed));
     bsdfEvaluate(evalData, pbrMat);
 
     if(evalData.pdf > 0.0)
@@ -143,19 +143,21 @@ ShadingResult shading(in PbrMaterial pbrMat, in HitState hit)
   {
     BsdfSampleData sampleData;
     sampleData.k1   = -gl_WorldRayDirectionEXT;  // outgoing direction
-    sampleData.xi   = vec4(rand(payload.seed), rand(payload.seed), rand(payload.seed), rand(payload.seed));
+    sampleData.xi   = vec3(rand(payload.seed), rand(payload.seed), rand(payload.seed));
     bsdfSample(sampleData, pbrMat);
-
-    result.weight       = sampleData.bsdf_over_pdf;
-    result.rayDirection = sampleData.k2;
-    vec3 offsetDir      = dot(result.rayDirection, hit.geonrm) > 0 ? hit.geonrm : -hit.geonrm;
-    result.rayOrigin    = offsetRay(hit.pos, offsetDir);
 
     if(sampleData.event_type == BSDF_EVENT_ABSORB)
     {
       stopPath();
       return result;  // Need to add the contribution ?
     }
+
+    result.weight       = sampleData.bsdf_over_pdf;
+    result.rayDirection = sampleData.k2;
+    vec3 offsetDir      = dot(result.rayDirection, hit.geonrm) > 0 ? hit.geonrm : -hit.geonrm;
+    result.rayOrigin    = offsetRay(hit.pos, offsetDir);
+
+
   }
 
   if(nextEventValid)
@@ -190,7 +192,8 @@ void main()
 
   // Material of the object and evaluated material (includes textures)
   GltfShadeMaterial mat    = materials.m[matIndex];
-  PbrMaterial       pbrMat = evaluateMaterial(mat, hit.nrm, hit.tangent, hit.bitangent, hit.uv);
+  MeshState         mesh   = MeshState(hit.nrm, hit.tangent, hit.bitangent, hit.geonrm, hit.uv, false/*isInside*/);
+  PbrMaterial       pbrMat = evaluateMaterial(mat, mesh);
 
   payload.hitT         = gl_HitTEXT;
   ShadingResult result = shading(pbrMat, hit);
