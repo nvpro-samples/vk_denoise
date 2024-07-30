@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2022-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2014-2022 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2024, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -130,9 +130,15 @@ public:
     m_device         = m_app->getDevice();
     m_physicalDevice = m_app->getPhysicalDevice();
 
-    m_dutil      = std::make_unique<nvvk::DebugUtil>(m_device);                           // Debug utility
-    m_alloc      = std::make_unique<AllocVma>(m_app->getContext().get());                 // Allocator
-    m_scene      = std::make_unique<nvh::gltf::Scene>();                                  // GLTF scene
+    VmaAllocatorCreateInfo allocator_info = {};
+    allocator_info.physicalDevice         = app->getPhysicalDevice();
+    allocator_info.device                 = app->getDevice();
+    allocator_info.instance               = app->getInstance();
+    allocator_info.flags                  = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+    m_dutil      = std::make_unique<nvvk::DebugUtil>(m_device);                            // Debug utility
+    m_alloc      = std::make_unique<AllocVma>(allocator_info);                             // Allocator
+    m_scene      = std::make_unique<nvh::gltf::Scene>();                                   // GLTF scene
     m_sceneVk    = std::make_unique<SceneVk>(m_device, m_physicalDevice, m_alloc.get());   // GLTF Scene buffers
     m_sceneRtx   = std::make_unique<SceneRtx>(m_device, m_physicalDevice, m_alloc.get());  // GLTF Scene BLAS/TLAS
     m_tonemapper = std::make_unique<TonemapperPostProcess>(m_device, m_alloc.get());
@@ -146,7 +152,8 @@ public:
     g_elemBenchmark->setCurrentFrame([&] { return m_frame; });
 
 #ifdef NVP_SUPPORTS_OPTIX7
-    m_denoiser = std::make_unique<DenoiserOptix>(m_app->getContext().get());
+    m_denoiser = std::make_unique<DenoiserOptix>();
+    m_denoiser->setup(m_device, m_physicalDevice, m_app->getQueue(0).familyIndex);
 
     OptixDenoiserOptions d_options;
     d_options.guideAlbedo = 1u;
@@ -168,7 +175,7 @@ public:
     prop2.pNext = &rt_prop;
     vkGetPhysicalDeviceProperties2(m_app->getPhysicalDevice(), &prop2);
     // Create utilities to create the Shading Binding Table (SBT)
-    uint32_t gct_queue_index = m_app->getQueueGCT().familyIndex;
+    uint32_t gct_queue_index = m_app->getQueue(0).familyIndex;
     m_sbt->setup(m_app->getDevice(), gct_queue_index, m_alloc.get(), rt_prop);
 
     // Create resources
@@ -435,7 +442,7 @@ public:
       };
 
       // Submit rendering and signal when done
-      vkQueueSubmit2(m_app->getContext()->m_queueGCT, 1, &submits, {});
+      vkQueueSubmit2(m_app->getQueue(0).queue, 1, &submits, {});
 
       // #OPTIX_D
       // Denoiser waits for signal (Vulkan) and submit (Cuda) new one when done
@@ -979,7 +986,7 @@ private:
       {
         VkCommandPoolCreateInfo info = {.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                                         .flags            = 0,
-                                        .queueFamilyIndex = m_app->getQueueGCT().familyIndex};
+                                        .queueFamilyIndex = m_app->getQueue(0).familyIndex};
         NVVK_CHECK(vkCreateCommandPool(m_device, &info, nullptr, &cf->cmdPool));
         m_dutil->setObjectName(cf->cmdPool, "Pool" + std::to_string(i));
       }
@@ -1080,42 +1087,62 @@ private:
 auto main(int argc, char** argv) -> int
 {
   nvvkhl::ApplicationCreateInfo spec;
-  spec.name             = PROJECT_NAME " Example";
-  spec.vSync            = true;
-  spec.vkSetup.apiMajor = 1;
-  spec.vkSetup.apiMinor = 3;
+  spec.name  = PROJECT_NAME " Example";
+  spec.vSync = true;
 
-  spec.vkSetup.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+  nvvk::ContextCreateInfo vkSetup;
+  vkSetup.apiMajor = 1;
+  vkSetup.apiMinor = 3;
+
+  vkSetup.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
   // #VKRay: Activate the ray tracing extension
   VkPhysicalDeviceAccelerationStructureFeaturesKHR accel_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
-  spec.vkSetup.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false, &accel_feature);  // To build acceleration structures
+  vkSetup.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false, &accel_feature);  // To build acceleration structures
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_pipeline_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
-  spec.vkSetup.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false, &rt_pipeline_feature);  // To use vkCmdTraceRaysKHR
-  spec.vkSetup.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);  // Required by ray tracing pipeline
+  vkSetup.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false, &rt_pipeline_feature);  // To use vkCmdTraceRaysKHR
+  vkSetup.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);  // Required by ray tracing pipeline
   VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
-  spec.vkSetup.addDeviceExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME, false, &ray_query_features);  // Used for picking
-  spec.vkSetup.addDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME, false, &ray_query_features);  // Used for picking
+  vkSetup.addDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 
   // #OPTIX_D
   // Semaphores - interop Vulkan/Cuda
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_EXTENSION_NAME);
 #ifdef WIN32
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME);
 #else
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_FENCE_FD_EXTENSION_NAME);
 #endif
 
   // Synchronization (mix of timeline and binary semaphores)
-  spec.vkSetup.addDeviceExtension(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, false);
+  vkSetup.addDeviceExtension(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, false);
 
   // Buffer - interop
-  spec.vkSetup.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
-  spec.vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+  vkSetup.addDeviceExtension(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+
+
+  // Display extension
+  vkSetup.deviceExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  vkSetup.instanceExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  nvvkhl::addSurfaceExtensions(vkSetup.instanceExtensions);
+
+  // Creating the Vulkan context
+  auto m_context = std::make_shared<nvvk::Context>();
+  m_context->init(vkSetup);
+
+  // Application Vulkan setup
+  spec.instance       = m_context->m_instance;
+  spec.device         = m_context->m_device;
+  spec.physicalDevice = m_context->m_physicalDevice;
+  spec.queues.push_back({m_context->m_queueGCT.familyIndex, m_context->m_queueGCT.queueIndex, m_context->m_queueGCT.queue});
+  spec.queues.push_back({m_context->m_queueC.familyIndex, m_context->m_queueC.queueIndex, m_context->m_queueC.queue});
+  spec.queues.push_back({m_context->m_queueT.familyIndex, m_context->m_queueT.queueIndex, m_context->m_queueT.queue});
 
 
   // Create the application
