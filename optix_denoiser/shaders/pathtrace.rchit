@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * SPDX-FileCopyrightText: Copyright (c) 2019-2021 NVIDIA CORPORATION
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2024, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -192,7 +192,7 @@ void main()
 
   // Material of the object and evaluated material (includes textures)
   GltfShadeMaterial mat    = materials.m[matIndex];
-  MeshState         mesh   = MeshState(hit.nrm, hit.tangent, hit.bitangent, hit.geonrm, hit.uv, false/*isInside*/);
+  MeshState         mesh   = MeshState(hit.nrm, hit.tangent, hit.bitangent, hit.geonrm, vec2[2](hit.uv, hit.uv), false/*isInside*/);
   PbrMaterial       pbrMat = evaluateMaterial(mat, mesh);
 
   payload.hitT         = gl_HitTEXT;
